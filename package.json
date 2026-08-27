@@ -1,0 +1,37 @@
+{
+  "name": "hermexvm",
+  "version": "1.2.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json}\"",
+    "check-types": "pnpm build && turbo run check-types",
+    "test": "turbo run test",
+    "test:run": "turbo run test:run",
+    "check": "pnpm format:check && pnpm lint && pnpm check-types && pnpm test:run && pnpm build",
+    "app:dev": "pnpm --filter @contexcgi/hermes-chat dev",
+    "app:build": "pnpm --filter @contexcgi/protocol build && pnpm --filter @contexcgi/client build && pnpm --filter @contexcgi/hermes-chat build",
+    "app:sync": "pnpm app:build && pnpm --filter @contexcgi/hermes-chat android:sync",
+    "app:apk": "pnpm app:sync && pnpm --filter @contexcgi/hermes-chat android:apk",
+    "bridge:dev": "pnpm --filter @contexcgi/hermes-bridge dev",
+    "bridge:build": "pnpm --filter @contexcgi/protocol build && pnpm --filter @contexcgi/file-transfer build && pnpm --filter @contexcgi/bridge-auth build && pnpm --filter @contexcgi/bridge-relay build && pnpm --filter @contexcgi/hermes-bridge build",
+    "bridge:start": "pnpm bridge:build && pnpm --filter @contexcgi/hermes-bridge start",
+    "smoke": "tsx scripts/smoke-hermes-chat.ts",
+    "fake-stack": "tsx scripts/dev-hermes-fake-stack.ts"
+  },
+  "devDependencies": {
+    "nostr-tools": "^2.23.3",
+    "prettier": "^3.7.4",
+    "tsx": "^4.21.0",
+    "turbo": "^2.9.14",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

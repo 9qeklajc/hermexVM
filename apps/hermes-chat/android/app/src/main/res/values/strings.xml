@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">hermexVM</string>
+    <string name="title_activity_main">hermexVM</string>
+    <string name="package_name">ai.hermex.vm</string>
+    <string name="custom_url_scheme">ai.hermex.vm</string>
+</resources>

@@ -1,0 +1,9 @@
+node_modules
+dist
+android/.gradle
+android/app/build
+android/build
+android/capacitor-cordova-android-plugins
+android/local.properties
+*.apk
+!hermexvm-debug.apk

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "ui": "tui",
+  "globalEnv": [
+    "CONTEXCGI_ALLOWED_NPUBS",
+    "CONTEXCGI_FILE_TRANSFER_ROOT",
+    "CONTEXCGI_FILE_TRANSFER_MAX_BYTES",
+    "CONTEXCGI_FILE_TRANSFER_CHUNK_BYTES",
+    "CONTEXCGI_FILE_TRANSFER_UPLOAD_TIMEOUT_MS",
+    "HERMES_BRIDGE_PRIVATE_KEY",
+    "HERMES_BRIDGE_RELAYS",
+    "HERMES_BRIDGE_PUBLIC",
+    "HERMES_BRIDGE_REQUIRE_ENCRYPTION",
+    "HERMES_BRIDGE_DATA_ROOT",
+    "HERMES_BRIDGE_FILE_TRANSFER_ROOT",
+    "HERMES_HOME",
+    "HERMES_AGENT_ROOT",
+    "HERMES_WHISPER_ENABLED",
+    "HERMES_WHISPER_CLI",
+    "HERMES_WHISPER_MODEL",
+    "HERMES_FFMPEG",
+    "HERMES_FFPROBE",
+    "HERMES_TRANSCRIPTION_MAX_BYTES",
+    "HERMES_TRANSCRIPTION_TIMEOUT_MS"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": ["dist/**"]
+    },
+    "lint": { "dependsOn": ["^lint"] },
+    "check-types": { "dependsOn": ["^check-types"] },
+    "test": { "dependsOn": ["^build"], "cache": false },
+    "test:run": { "dependsOn": ["^build"] },
+    "dev": { "cache": false, "persistent": true }
+  }
+}
