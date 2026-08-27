@@ -156,6 +156,136 @@ describe("WhisperTranscriptionService.transcribe validation", () => {
   });
 });
 
+describe("WhisperTranscriptionService shared service backend", () => {
+  it("probes health and sends the original recording as multipart audio", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const service = new WhisperTranscriptionService({
+      enabled: true,
+      serviceUrl: "http://whisper.internal:8002",
+      fetch: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url.endsWith("/health")) {
+          return new Response(JSON.stringify({ status: "ok" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify({ text: "shared service result", language: "en" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    await expect(service.capabilities()).resolves.toMatchObject({
+      available: true,
+    });
+    await expect(
+      service.transcribe({
+        contentBase64: SHORT_AUDIO_BASE64,
+        mimeType: "audio/webm",
+        durationMs: 2_500,
+      }),
+    ).resolves.toEqual({
+      status: "ok",
+      transcript: "shared service result",
+      durationSeconds: 2.5,
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "http://whisper.internal:8002/health",
+      "http://whisper.internal:8002/transcribe",
+    ]);
+    const body = calls[1]?.init?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get("audio")).toBeInstanceOf(Blob);
+  });
+
+  it("adds an optional bearer token without leaking it into errors", async () => {
+    const headers: string[] = [];
+    const service = new WhisperTranscriptionService({
+      enabled: true,
+      serviceUrl: "https://whisper.example",
+      serviceToken: "super-secret",
+      fetch: async (_input, init) => {
+        headers.push(new Headers(init?.headers).get("authorization") ?? "");
+        return new Response("unavailable", { status: 503 });
+      },
+    });
+    await service.capabilities();
+    expect(headers).toEqual(["Bearer super-secret"]);
+  });
+
+  it("maps service unavailable, timeout, and malformed success responses", async () => {
+    const unavailable = new WhisperTranscriptionService({
+      enabled: true,
+      serviceUrl: "http://whisper.internal",
+      checkRuntime: async () => ({ ok: true }),
+      fetch: async () => new Response("busy", { status: 503 }),
+    });
+    await expect(
+      unavailable.transcribe({
+        contentBase64: SHORT_AUDIO_BASE64,
+        mimeType: "audio/webm",
+        durationMs: 1_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "error",
+      code: "BUSY",
+      retryable: true,
+    });
+
+    const timedOut = new WhisperTranscriptionService({
+      enabled: true,
+      serviceUrl: "http://whisper.internal",
+      timeoutMs: 10,
+      checkRuntime: async () => ({ ok: true }),
+      fetch: async (_input, init) => {
+        await new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+        throw new Error("unreachable");
+      },
+    });
+    await expect(
+      timedOut.transcribe({
+        contentBase64: SHORT_AUDIO_BASE64,
+        mimeType: "audio/webm",
+        durationMs: 1_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "error",
+      code: "TIMEOUT",
+      retryable: true,
+    });
+
+    const malformed = new WhisperTranscriptionService({
+      enabled: true,
+      serviceUrl: "http://whisper.internal",
+      checkRuntime: async () => ({ ok: true }),
+      fetch: async () =>
+        new Response(JSON.stringify({ text: "" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await expect(
+      malformed.transcribe({
+        contentBase64: SHORT_AUDIO_BASE64,
+        mimeType: "audio/webm",
+        durationMs: 1_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "error",
+      code: "TRANSCRIPTION_FAILED",
+      retryable: true,
+    });
+  });
+});
+
 describe("WhisperTranscriptionService.transcribe pipeline", () => {
   it("transcribes successfully via ffmpeg + whisper-cli", async () => {
     const service = readyService({ durationSeconds: 3.2 });

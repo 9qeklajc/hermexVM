@@ -73,6 +73,10 @@ export type CommandRunner = (
 
 export type WhisperTranscriptionConfig = {
   enabled: boolean;
+  /** Base URL of a shared Whisper-compatible service (/health + /transcribe). */
+  serviceUrl?: string;
+  /** Optional bearer token for the shared service. */
+  serviceToken?: string;
   whisperCli?: string;
   whisperModel?: string;
   ffmpegPath?: string;
@@ -84,6 +88,8 @@ export type WhisperTranscriptionConfig = {
   checkRuntime?: () => Promise<{ ok: boolean; reason?: string }>;
   /** Test seam: replaces the real child-process spawn used for every command. */
   runCommand?: CommandRunner;
+  /** Test seam: replaces fetch for a shared Whisper service. */
+  fetch?: typeof fetch;
 };
 
 const DEFAULT_MAX_AUDIO_BYTES = 8 * 1024 * 1024; // 8 MiB decoded
@@ -220,10 +226,10 @@ async function probeCommandRuns(
 }
 
 /**
- * Bridge-local, dependency-free (no cloud) speech-to-text service. Converts an
- * uploaded recording with ffmpeg, transcribes it with a locally-built
- * whisper.cpp `whisper-cli`, and returns plain text. Never logs audio bytes or
- * transcript content — only sizes, timings, and outcome codes.
+ * Self-hosted speech-to-text adapter. It either sends the original recording
+ * to a configured shared Whisper HTTP service or converts it with ffmpeg and
+ * invokes a local whisper.cpp `whisper-cli`. It never logs audio bytes,
+ * credentials, or transcript content — only sizes, timings, and outcome codes.
  */
 export class WhisperTranscriptionService {
   private readonly maxAudioBytes: number;
@@ -233,6 +239,9 @@ export class WhisperTranscriptionService {
   private readonly ffprobePath: string;
   private readonly whisperCli: string;
   private readonly whisperModel: string;
+  private readonly serviceUrl: string;
+  private readonly serviceToken: string;
+  private readonly fetch: typeof fetch;
   private readonly runCommand: CommandRunner;
   private readonly maxConcurrency = 1;
   private activeJobs = 0;
@@ -247,6 +256,9 @@ export class WhisperTranscriptionService {
     this.ffprobePath = config.ffprobePath ?? "ffprobe";
     this.whisperCli = config.whisperCli ?? "";
     this.whisperModel = config.whisperModel ?? "";
+    this.serviceUrl = config.serviceUrl?.replace(/\/+$/, "") ?? "";
+    this.serviceToken = config.serviceToken ?? "";
+    this.fetch = config.fetch ?? globalThis.fetch;
     this.runCommand = config.runCommand ?? spawnCommand;
   }
 
@@ -261,6 +273,7 @@ export class WhisperTranscriptionService {
   }
 
   private async probeAvailability(): Promise<{ ok: boolean; reason?: string }> {
+    if (this.serviceUrl) return this.probeServiceAvailability();
     if (!this.whisperCli || !this.whisperModel) {
       return { ok: false, reason: "missing-config" };
     }
@@ -277,6 +290,34 @@ export class WhisperTranscriptionService {
     if (!ffmpegOk || !ffprobeOk)
       return { ok: false, reason: "missing-runtime" };
     return { ok: true };
+  }
+
+  private async probeServiceAvailability(): Promise<{
+    ok: boolean;
+    reason?: string;
+  }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    try {
+      const response = await this.fetch(`${this.serviceUrl}/health`, {
+        method: "GET",
+        headers: this.serviceHeaders(),
+        signal: controller.signal,
+      });
+      return response.ok
+        ? { ok: true }
+        : { ok: false, reason: "service-unavailable" };
+    } catch {
+      return { ok: false, reason: "service-unavailable" };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private serviceHeaders(): HeadersInit {
+    return this.serviceToken
+      ? { Authorization: `Bearer ${this.serviceToken}` }
+      : {};
   }
 
   async capabilities(): Promise<TranscriptionCapabilities> {
@@ -340,6 +381,18 @@ export class WhisperTranscriptionService {
         retryable: false,
       };
     }
+    if (
+      typeof input.durationMs === "number" &&
+      input.durationMs >
+        (this.maxDurationSeconds + DURATION_TOLERANCE_SECONDS) * 1_000
+    ) {
+      return {
+        status: "error",
+        code: "TOO_LONG",
+        message: `Recording is longer than the ${this.maxDurationSeconds}s limit.`,
+        retryable: false,
+      };
+    }
 
     const availability = await this.checkAvailability();
     if (!availability.ok) {
@@ -370,6 +423,10 @@ export class WhisperTranscriptionService {
     const signal = mergeSignals([opts.signal, timeoutController.signal]);
 
     try {
+      if (this.serviceUrl) {
+        return await this.transcribeViaService(audio, input, startedAt, signal);
+      }
+
       workDir = await mkdtemp(join(tmpdir(), "hermes-voice-"));
       const inputPath = join(
         workDir,
@@ -497,6 +554,97 @@ export class WhisperTranscriptionService {
         await rm(workDir, { recursive: true, force: true }).catch(
           () => undefined,
         );
+    }
+  }
+
+  private async transcribeViaService(
+    audio: Buffer,
+    input: TranscribeInput,
+    startedAt: number,
+    signal: AbortSignal,
+  ): Promise<TranscribeResult> {
+    const form = new FormData();
+    form.append(
+      "audio",
+      new Blob([new Uint8Array(audio)], { type: mimeBase(input.mimeType) }),
+      `recording.${extensionForMime(input.mimeType)}`,
+    );
+
+    let response: Response;
+    try {
+      response = await this.fetch(`${this.serviceUrl}/transcribe`, {
+        method: "POST",
+        headers: this.serviceHeaders(),
+        body: form,
+        signal,
+      });
+    } catch (error) {
+      if (
+        signal.aborted ||
+        (error instanceof Error && error.name === "AbortError")
+      ) {
+        return {
+          status: "error",
+          code: "TIMEOUT",
+          message: "Transcription service timed out.",
+          retryable: true,
+        };
+      }
+      return {
+        status: "error",
+        code: "TRANSCRIPTION_FAILED",
+        message: "Transcription service request failed.",
+        retryable: true,
+      };
+    }
+
+    if (!response.ok) {
+      if (response.status === 408 || response.status === 504) {
+        return {
+          status: "error",
+          code: "TIMEOUT",
+          message: "Transcription service timed out.",
+          retryable: true,
+        };
+      }
+      if (response.status === 429 || response.status === 503) {
+        return {
+          status: "error",
+          code: "BUSY",
+          message: "The transcription service is busy. Try again shortly.",
+          retryable: true,
+        };
+      }
+      return {
+        status: "error",
+        code: "TRANSCRIPTION_FAILED",
+        message: "Transcription service failed.",
+        retryable: response.status >= 500,
+      };
+    }
+
+    try {
+      const payload = (await response.json()) as { text?: unknown };
+      const transcript =
+        typeof payload.text === "string" ? payload.text.trim() : "";
+      if (!transcript) throw new Error("missing transcript");
+      const durationSeconds =
+        typeof input.durationMs === "number"
+          ? input.durationMs / 1_000
+          : this.maxDurationSeconds;
+      console.log(
+        `[bridge] voice transcribed backend=service bytes=${audio.length} ` +
+          `durationS=${durationSeconds.toFixed(1)} elapsedMs=${Date.now() - startedAt} ` +
+          `chars=${transcript.length}`,
+      );
+      return { status: "ok", transcript, durationSeconds };
+    } catch {
+      return {
+        status: "error",
+        code: "TRANSCRIPTION_FAILED",
+        message: "Transcription service returned an invalid response.",
+        retryable: true,
+      };
     }
   }
 

@@ -46,6 +46,43 @@ describe("bridge runtime configuration", () => {
     );
   });
 
+  it("selects a shared Whisper service without requiring a local model", () => {
+    const config = loadBridgeRuntimeConfig({
+      ...BASE_ENV,
+      HERMES_WHISPER_ENABLED: "true",
+      HERMES_WHISPER_SERVICE_URL: "http://100.90.84.147:8002/",
+      HERMES_WHISPER_SERVICE_TOKEN: "optional-token",
+    });
+    expect(config.transcription).toMatchObject({
+      enabled: true,
+      serviceUrl: "http://100.90.84.147:8002",
+      serviceToken: "optional-token",
+    });
+    expect(config.transcription.whisperCli).toBeUndefined();
+  });
+
+  it("rejects invalid or ambiguous shared-service configuration", () => {
+    expect(() =>
+      loadBridgeRuntimeConfig({
+        ...BASE_ENV,
+        HERMES_WHISPER_SERVICE_URL: "ftp://whisper.internal",
+      }),
+    ).toThrow(/http:\/\//);
+    expect(() =>
+      loadBridgeRuntimeConfig({
+        ...BASE_ENV,
+        HERMES_WHISPER_SERVICE_URL: "http://whisper.internal",
+        HERMES_WHISPER_CLI: "/usr/bin/whisper-cli",
+      }),
+    ).toThrow(/either/);
+    expect(() =>
+      loadBridgeRuntimeConfig({
+        ...BASE_ENV,
+        HERMES_WHISPER_SERVICE_TOKEN: "orphan-token",
+      }),
+    ).toThrow(/requires/);
+  });
+
   it("wires bounded Whisper policy from env", () => {
     const config = loadBridgeRuntimeConfig({
       ...BASE_ENV,

@@ -2005,7 +2005,7 @@ export function registerHermesTools(
     },
   );
 
-  // -- voice transcription (local whisper.cpp — no cloud service) ------------
+  // -- voice transcription (configured self-hosted backend) ------------------
   // Identical protocol to the Paperclip bridge: a recording is uploaded as many
   // small `chunk` calls (each already small enough to avoid the CEP-22 sender
   // throwing on plaintexts past NIP-44's 65535-byte ceiling), then finalized by
@@ -2019,7 +2019,7 @@ export function registerHermesTools(
     {
       title: "Voice transcription capabilities",
       description:
-        "Whether this bridge can transcribe voice recordings locally right now, and the recording limits to respect.",
+        "Whether this bridge can transcribe voice recordings with its configured self-hosted backend, and the recording limits to respect.",
       inputSchema: {},
     },
     async () =>
@@ -2066,8 +2066,8 @@ export function registerHermesTools(
     {
       title: "Finalize and transcribe a voice recording",
       description:
-        "Finalizes a fully chunk-uploaded recording (by uploadId) and transcribes it locally with whisper.cpp — " +
-        "no cloud speech-to-text service is used. No audio travels in this call itself; it only references chunks " +
+        "Finalizes a fully chunk-uploaded recording (by uploadId) and transcribes it with the configured " +
+        "local or shared self-hosted Whisper backend. No audio travels in this call itself; it only references chunks " +
         "already uploaded via hermes.transcription.chunk over this same ContextVM/Nostr connection.",
       inputSchema: {
         uploadId: z.string().min(1).max(128),
@@ -2123,7 +2123,7 @@ export function registerHermesTools(
       title: "Transcribe an uploaded voice file",
       description:
         "Transcribes a voice recording previously uploaded through the resumable contexcgi.fileTransfer.upload.* tools " +
-        "(sha256-verified) with local whisper.cpp — no cloud speech-to-text. Preferred over the legacy " +
+        "(sha256-verified) with the configured self-hosted Whisper backend. Preferred over the legacy " +
         "hermes.transcription.chunk + hermes.transcription.transcribe pair: the transfer path is resumable and retries " +
         "safely per chunk. The temporary file is deleted once the outcome is terminal.",
       inputSchema: {

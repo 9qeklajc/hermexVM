@@ -25,7 +25,7 @@ The bridge runs beside Hermes, holds the bridge identity, and accepts calls only
   - `$HERMES_AGENT_ROOT/venv/bin/python`
 - A reachable Nostr relay
 - For Android builds: JDK 21 and Android SDK 35
-- For voice transcription: `ffmpeg`, `ffprobe`, and a local whisper.cpp model
+- For voice transcription: an existing compatible Whisper HTTP service, or `ffmpeg`, `ffprobe`, and a local whisper.cpp model
 
 ## Install and verify
 
@@ -162,16 +162,50 @@ Hermes bridge ONLINE
 pubkey (hex):  ...
 pubkey (npub): npub1...
 relays:        ...
-voice:         ready (local whisper.cpp) | unavailable (...)
+voice:         ready (shared Whisper service | local whisper.cpp) | unavailable (...)
 ```
 
 Paste the printed bridge `npub` and exact relay list into the app, confirm the displayed client `npub` is in `CONTEXCGI_ALLOWED_NPUBS`, then tap **Connect**.
 
-## Voice recordings with local whisper.cpp
+## Voice recordings
 
-The app records at most 60 seconds, uploads the audio to the bridge, and inserts the transcript into the editable message draft. Audio is not sent to a cloud transcription service.
+The app records at most 60 seconds, uploads the audio to the bridge, and inserts the transcript into the editable message draft. The bridge supports either an existing shared Whisper HTTP service or its own local whisper.cpp process. Choose one backend; a shared service avoids loading a duplicate model.
 
-### Install build dependencies
+### Option A — use an existing Whisper service (recommended)
+
+The service must expose:
+
+- `GET /health` — HTTP 2xx when ready.
+- `POST /transcribe` — multipart form upload with field `audio`.
+- A JSON response containing `{ "text": "transcript", "language": "en" }`; `language` is optional.
+
+Configure `.env` with the service's base URL:
+
+```dotenv
+HERMES_WHISPER_ENABLED=true
+HERMES_WHISPER_SERVICE_URL=http://whisper-host:8002
+# Optional when the service requires bearer authentication:
+# HERMES_WHISPER_SERVICE_TOKEN=replace-with-token
+HERMES_TRANSCRIPTION_MAX_BYTES=8388608
+HERMES_TRANSCRIPTION_MAX_DURATION_SECONDS=60
+HERMES_TRANSCRIPTION_TIMEOUT_MS=180000
+```
+
+Do not also set `HERMES_WHISPER_CLI` or `HERMES_WHISPER_MODEL`. The bridge checks `/health` at startup and sends the original browser recording directly to `/transcribe`, so it does not need another model, whisper.cpp checkout, ffmpeg, or ffprobe.
+
+Validate the currently configured service before starting the bridge:
+
+```bash
+curl --fail --show-error "$HERMES_WHISPER_SERVICE_URL/health"
+```
+
+Restart the bridge and require `voice: ready (shared Whisper service)` in its startup output.
+
+### Option B — run a dedicated local whisper.cpp backend
+
+Use this only when no shared service is available.
+
+#### Install build dependencies
 
 Debian/Ubuntu:
 
@@ -180,7 +214,7 @@ sudo apt-get update
 sudo apt-get install -y ffmpeg git cmake build-essential
 ```
 
-### Build whisper.cpp and download a multilingual model
+#### Build whisper.cpp and download a multilingual model
 
 ```bash
 mkdir -p "$HOME/.local/src"
@@ -196,7 +230,7 @@ bash "$HOME/.local/src/whisper.cpp/models/download-ggml-model.sh" base
 
 The `base` model is multilingual. Do not use an `.en` model if you need German or other non-English languages.
 
-### Validate whisper.cpp
+#### Validate whisper.cpp
 
 ```bash
 ffmpeg -version
@@ -212,7 +246,7 @@ test -s /tmp/hermexvm-whisper-test.txt
 rm -f /tmp/hermexvm-whisper-test.txt
 ```
 
-### Enable voice in `.env`
+#### Enable local voice in `.env`
 
 Use absolute paths:
 
@@ -227,7 +261,7 @@ HERMES_TRANSCRIPTION_MAX_DURATION_SECONDS=60
 HERMES_TRANSCRIPTION_TIMEOUT_MS=180000
 ```
 
-Restart the bridge and require `voice: ready (local whisper.cpp)` in its startup output. If it reports unavailable, verify the executable/model paths, execute/read permissions, and `ffmpeg`/`ffprobe`. On Android, also grant microphone and notification permissions.
+Do not set `HERMES_WHISPER_SERVICE_URL` in local mode. Restart the bridge and require `voice: ready (local whisper.cpp)` in its startup output. If it reports unavailable, verify the executable/model paths, execute/read permissions, and `ffmpeg`/`ffprobe`. On Android, also grant microphone and notification permissions.
 
 Safety bounds are strict: 64 KiB–8 MiB audio, 1–60 seconds, and a 15–300 second processing timeout. Invalid values stop bridge startup rather than silently weakening policy.
 
@@ -272,5 +306,5 @@ adb install -r apps/hermes-chat/hermexvm-debug.apk
 - **App times out:** verify bridge and app use the same relays and that the app's displayed client `npub` is allowlisted.
 - **Unauthorized client:** replace the whitelist entry with the exact client `npub` shown on that device and restart the bridge.
 - **Need to change settings:** use **Edit connection settings**; generating a new key requires updating the whitelist.
-- **Voice unavailable:** verify paths and restart until the bridge prints `voice: ready (local whisper.cpp)`.
+- **Voice unavailable:** for service mode, verify `$HERMES_WHISPER_SERVICE_URL/health`; for local mode, verify executable/model/ffmpeg paths. Restart until the bridge prints the selected backend as ready.
 - **Hermes not found:** set `HERMES_AGENT_ROOT` to the checkout containing `tui_gateway` and executable `venv/bin/python`.

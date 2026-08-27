@@ -14,7 +14,7 @@ The bridge automatically loads the repository-root `.env`.
 
 The allowlist fails closed and is passed to the ContextVM transport as `allowedPublicKeys`. A missing, empty, secret, or malformed entry prevents startup.
 
-See [`.env.example`](../../.env.example) for Hermes paths, encryption/public settings, file storage, whisper.cpp paths, and bounded transcription policy.
+See [`.env.example`](../../.env.example) for Hermes paths, encryption/public settings, file storage, a shared `HERMES_WHISPER_SERVICE_URL` (with optional bearer token), local whisper.cpp fallback paths, and bounded transcription policy.
 
 ## Start
 

@@ -59,6 +59,24 @@ export function clampedEnvNumber(
   return value;
 }
 
+function optionalHttpUrl(
+  raw: string | undefined,
+  name: string,
+): string | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid http:// or https:// URL`);
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`${name} must use http:// or https://`);
+  }
+  return value.replace(/\/+$/, "");
+}
+
 export function parseRelayUrls(raw: string): string[] {
   const relays = raw
     .split(/[\s,]+/)
@@ -91,10 +109,29 @@ export function loadBridgeRuntimeConfig(env: NodeJS.ProcessEnv = process.env) {
     env.HERMES_BRIDGE_FILE_TRANSFER_ROOT?.trim() ||
     join(homedir(), ".hermes-bridge", "files");
 
+  const serviceUrl = optionalHttpUrl(
+    env.HERMES_WHISPER_SERVICE_URL,
+    "HERMES_WHISPER_SERVICE_URL",
+  );
+  const whisperCli = env.HERMES_WHISPER_CLI?.trim() || undefined;
+  const whisperModel = env.HERMES_WHISPER_MODEL?.trim() || undefined;
+  if (serviceUrl && (whisperCli || whisperModel)) {
+    throw new Error(
+      "Use either HERMES_WHISPER_SERVICE_URL or local HERMES_WHISPER_CLI/HERMES_WHISPER_MODEL, not both",
+    );
+  }
+  if (env.HERMES_WHISPER_SERVICE_TOKEN?.trim() && !serviceUrl) {
+    throw new Error(
+      "HERMES_WHISPER_SERVICE_TOKEN requires HERMES_WHISPER_SERVICE_URL",
+    );
+  }
+
   const transcription: WhisperTranscriptionConfig = {
     enabled: parseStrictBoolean(env, "HERMES_WHISPER_ENABLED", false),
-    whisperCli: env.HERMES_WHISPER_CLI?.trim() || undefined,
-    whisperModel: env.HERMES_WHISPER_MODEL?.trim() || undefined,
+    serviceUrl,
+    serviceToken: env.HERMES_WHISPER_SERVICE_TOKEN?.trim() || undefined,
+    whisperCli,
+    whisperModel,
     ffmpegPath: env.HERMES_FFMPEG?.trim() || undefined,
     ffprobePath: env.HERMES_FFPROBE?.trim() || undefined,
     maxAudioBytes: clampedEnvNumber(

@@ -50,8 +50,11 @@ async function main(): Promise<void> {
   console.log(
     `  agents:        ${agents.map((agent) => `${agent.name}${agent.isDefault ? " (default)" : ""}`).join(", ")}`,
   );
+  const voiceBackend = config.transcription.serviceUrl
+    ? "shared Whisper service"
+    : "local whisper.cpp";
   console.log(
-    `  voice:         ${voiceCapabilities.available ? "ready (local whisper.cpp)" : `unavailable (${voiceCapabilities.reason ?? "disabled"})`}`,
+    `  voice:         ${voiceCapabilities.available ? `ready (${voiceBackend})` : `unavailable (${voiceCapabilities.reason ?? "disabled"})`}`,
   );
   console.log(
     "  Paste EITHER pubkey form into the app's Bridge public key field.",
