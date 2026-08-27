@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_RELAYS, parseRelays, type HermesConfig } from "../lib/api";
+import {
+  DEFAULT_RELAYS,
+  DEFAULT_SERVER_PUBKEY,
+  clientNpubFromPrivateKey,
+  parseRelays,
+  type HermesConfig,
+} from "../lib/api";
 import { useConnectionState } from "../lib/store";
 import { HermesMark } from "../components/ui";
 
@@ -16,8 +22,12 @@ export function ConnectScreen() {
       ? config.relays.join(", ")
       : DEFAULT_RELAYS.join(", "),
   );
-  const [serverPubkey, setServerPubkey] = useState(config?.serverPubkey ?? "");
-  const [privateKey, setPrivateKey] = useState(config?.privateKey ?? "");
+  const [serverPubkey, setServerPubkey] = useState(
+    config?.serverPubkey ?? DEFAULT_SERVER_PUBKEY,
+  );
+  const [privateKey, setPrivateKey] = useState(
+    config?.privateKey ?? randomHexKey(),
+  );
 
   // Persisted credentials load asynchronously on first mount; re-seed the form
   // from them (e.g. after a failed auto-connect) so nothing has to be re-typed.
@@ -29,6 +39,7 @@ export function ConnectScreen() {
   }, [config]);
 
   const busy = status === "connecting";
+  const clientNpub = clientNpubFromPrivateKey(privateKey);
 
   const submit = () => {
     const next: HermesConfig = {
@@ -76,10 +87,10 @@ export function ConnectScreen() {
           <span>Your client key</span>
           <div className="input-row">
             <input
-              type="text"
+              type="password"
               autoCapitalize="off"
               autoCorrect="off"
-              placeholder="hex / nsec (blank = generate)"
+              placeholder="hex / nsec"
               value={privateKey}
               onChange={(event) => setPrivateKey(event.target.value)}
             />
@@ -92,6 +103,19 @@ export function ConnectScreen() {
             </button>
           </div>
         </label>
+        <div className="connect-hint">
+          <strong>Client npub to whitelist:</strong>{" "}
+          <code>{clientNpub ?? "Generate or enter a valid client key"}</code>
+          {clientNpub ? (
+            <button
+              type="button"
+              className="button secondary compact"
+              onClick={() => void navigator.clipboard.writeText(clientNpub)}
+            >
+              Copy npub
+            </button>
+          ) : null}
+        </div>
         {status === "error" && error ? (
           <div className="form-error" style={{ whiteSpace: "pre-wrap" }}>
             {error}
@@ -100,7 +124,10 @@ export function ConnectScreen() {
         <button
           className="button primary"
           disabled={
-            busy || !serverPubkey.trim() || parseRelays(relays).length === 0
+            busy ||
+            !clientNpub ||
+            !serverPubkey.trim() ||
+            parseRelays(relays).length === 0
           }
           onClick={submit}
         >
@@ -108,8 +135,9 @@ export function ConnectScreen() {
         </button>
         <p className="connect-hint">
           The hermes-bridge runs next to your Hermes install and prints its
-          public key on startup — paste it here. Your client key is a Nostr
-          identity stored only on this device.
+          public key on startup — paste it here. Add the client npub shown above
+          to CONTEXCGI_ALLOWED_NPUBS before starting the bridge. Never copy the
+          client secret into the bridge environment.
         </p>
       </div>
     </div>

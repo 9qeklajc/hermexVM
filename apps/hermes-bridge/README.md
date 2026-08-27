@@ -1,47 +1,35 @@
-# Hermes bridge
+# hermexVM bridge
 
-The Hermes bridge exposes local Hermes profiles and durable conversations as
-ContextVM tools. It owns the Nostr key and spawns Hermes' `tui_gateway` child;
-clients never access Hermes files directly.
+The bridge exposes local Hermes Agent profiles and conversations as private ContextVM tools over Nostr. It launches Hermes `tui_gateway` through the configured Hermes virtual environment.
 
-## Linked conversations / cross-agent handoffs
+Use the complete operator guide in [`../../README.md`](../../README.md). It covers bridge-key generation, finding the bridge `npub`, obtaining the app/client `npub`, mandatory allowlisting, relays, encryption, and whisper.cpp voice setup.
 
-`hermes.handoffs.preview` creates the canonical preview for a handoff. Only
-visible user and assistant messages are eligible; system prompts, tool output,
-thinking, and approvals are excluded. `hermes.handoffs.send` revalidates the
-source snapshot before any destination side effect, persists it, then delivers
-and streams the destination turn. Existing destinations with a running turn are
-rejected. Reciprocal handoffs are allowed; `hermes.handoffs.list` is the
-chronological source of graph edges.
+## Required runtime configuration
 
-Handoff metadata is stored in a bridge-owned sidecar and never written to
-Hermes' `state.db`:
+The bridge automatically loads the repository-root `.env`.
 
-```text
-$HERMES_BRIDGE_DATA_ROOT/handoffs/artifacts/<sha256>.json
-$HERMES_BRIDGE_DATA_ROOT/handoffs/deliveries/<request-id>.json
+- `HERMES_BRIDGE_PRIVATE_KEY_FILE` or `HERMES_BRIDGE_PRIVATE_KEY` — bridge secret; set exactly one.
+- `HERMES_BRIDGE_RELAYS` — one or more comma/space-separated `ws://` or `wss://` relay URLs.
+- `CONTEXCGI_ALLOWED_NPUBS` — mandatory comma/space-separated client `npub`s or hex pubkeys.
+
+The allowlist fails closed and is passed to the ContextVM transport as `allowedPublicKeys`. A missing, empty, secret, or malformed entry prevents startup.
+
+See [`.env.example`](../../.env.example) for Hermes paths, encryption/public settings, file storage, whisper.cpp paths, and bounded transcription policy.
+
+## Start
+
+```bash
+pnpm bridge:start
 ```
 
-Artifacts are immutable and content-addressed. Delivery files carry mutable
-accepted/running/completed/failed/interrupted status and are atomically
-replaced. A request UUID is an idempotency key. If the bridge restarts while a
-delivery is running, it deterministically marks that delivery interrupted
-because the owned gateway child also restarted.
+Startup prints the bridge's public key in hex and `npub` forms. It never prints the bridge secret.
 
-## Environment
+## Development
 
-| Variable                           | Default                     | Meaning                                                                          |
-| ---------------------------------- | --------------------------- | -------------------------------------------------------------------------------- |
-| `HERMES_BRIDGE_PRIVATE_KEY`        | required                    | Bridge Nostr secret key.                                                         |
-| `CONTEXCGI_ALLOWED_NPUBS`          | required                    | Comma/space-separated authorized client npubs; startup fails closed when absent. |
-| `HERMES_BRIDGE_RELAYS`             | `wss://relay.contextvm.org` | Comma-separated relays.                                                          |
-| `HERMES_HOME`                      | `~/.hermes`                 | Hermes home and default profile.                                                 |
-| `HERMES_AGENT_ROOT`                | `$HERMES_HOME/hermes-agent` | Hermes checkout.                                                                 |
-| `HERMES_BRIDGE_DATA_ROOT`          | `~/.hermes-bridge/data`     | Bridge-owned handoff sidecar root.                                               |
-| `HERMES_BRIDGE_PUBLIC`             | `false`                     | Announce the server.                                                             |
-| `HERMES_BRIDGE_REQUIRE_ENCRYPTION` | `false`                     | Require encrypted ContextVM calls.                                               |
+```bash
+pnpm --filter @contexcgi/hermes-bridge test:run
+pnpm --filter @contexcgi/hermes-bridge check-types
+pnpm --filter @contexcgi/hermes-bridge build
+```
 
-Voice-related variables are documented in the repository `AGENTS.md`. Private
-bridges neither announce themselves nor publish relay-list metadata. The shared
-allowlist accepts `npub` or 64-character hex public keys and is enforced in
-addition to transport encryption.
+The fake gateway fixture is `test-fixtures/fake-gateway.mjs`; from the repository root, `pnpm smoke` validates the full app-client/bridge flow without a Hermes installation.

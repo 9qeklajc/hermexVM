@@ -24,8 +24,7 @@ export type UploadFailure = {
 export type ChunkResult = ChunkAck | UploadFailure;
 
 export type FinalizeOutcome =
-  | { status: "ready"; contentBase64: string }
-  | UploadFailure;
+  { status: "ready"; contentBase64: string } | UploadFailure;
 
 const MAX_CHUNKS = 2_000;
 // Outer bound on the total reassembled base64 length. The Whisper service

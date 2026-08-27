@@ -22,6 +22,7 @@
     "@contexcgi/protocol": "workspace:*",
     "@contextvm/sdk": "^0.11.8",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^16.6.1",
     "ws": "^8.21.0",
     "yaml": "^2.8.0",
     "zod": "^4.4.3"

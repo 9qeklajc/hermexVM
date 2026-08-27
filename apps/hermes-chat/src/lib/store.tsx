@@ -10,14 +10,8 @@ import {
 } from "react";
 import { Preferences } from "@capacitor/preferences";
 import { App as CapApp } from "@capacitor/app";
+import { makeClient, probeRelays, type HermesConfig } from "./api";
 import {
-  DEFAULT_CONFIG,
-  makeClient,
-  probeRelays,
-  type HermesConfig,
-} from "./api";
-import {
-  restoreConnectionConfig,
   type HermesActivityEvent,
   type HermesActivityStream,
   type HermesChatClient,
@@ -111,7 +105,8 @@ export function useConnectionState(): ConnectionState {
   return value;
 }
 
-const STORAGE_KEY = "hermes.chat.connection.contextvm";
+// v2 intentionally invalidates the legacy build's shared embedded identity.
+const STORAGE_KEY = "hermexvm.connection.contextvm.v2";
 
 /**
  * Two configs point at the same bridge/session when their identity + relays
@@ -126,22 +121,28 @@ function sameConnection(a: HermesConfig, b: HermesConfig): boolean {
   return a.relays.every((r, i) => r === b.relays[i]);
 }
 
-/**
- * Restores the persisted connection. Any config that uses the shipped single-user
- * identity (default privateKey + serverPubkey) is treated as the auto-connect
- * config and force-updated to the current DEFAULT_RELAYS — so a relay-set change
- * (e.g. dropping nostr.mom, adding vetted trusted relays) propagates to devices
- * that already have a stored config. A genuinely custom connection is preserved.
- */
-function restoreStoredConfig(value: string | null): HermesConfig {
-  const restored = restoreConnectionConfig(value, DEFAULT_CONFIG);
-  if (
-    restored.privateKey === DEFAULT_CONFIG.privateKey &&
-    restored.serverPubkey === DEFAULT_CONFIG.serverPubkey
-  ) {
-    return DEFAULT_CONFIG;
+/** Restore only a complete on-device connection. Fresh/corrupt installs go to setup. */
+function restoreStoredConfig(value: string | null): HermesConfig | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<HermesConfig>;
+    if (
+      typeof parsed.privateKey === "string" &&
+      parsed.privateKey.length > 0 &&
+      typeof parsed.serverPubkey === "string" &&
+      parsed.serverPubkey.length > 0 &&
+      Array.isArray(parsed.relays) &&
+      parsed.relays.length > 0 &&
+      parsed.relays.every(
+        (relay) => typeof relay === "string" && relay.length > 0,
+      )
+    ) {
+      return parsed as HermesConfig;
+    }
+  } catch {
+    // Corrupt preferences must not block first-run setup.
   }
-  return restored;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -252,13 +253,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     reconnect();
   }, [reconnect]);
 
-  // Restore the on-device identity and auto-connect. The shipped single-user
-  // config is only a first-run/corrupt-storage fallback; a successful manual
-  // connection must survive WebView recreation and app restarts.
+  // Restore a successful on-device connection. Fresh or corrupt installs stay
+  // disconnected and show setup, where a unique client identity is generated.
   useEffect(() => {
     void Preferences.get({ key: STORAGE_KEY })
       .then(({ value }) => setConfig(restoreStoredConfig(value)))
-      .catch(() => setConfig(DEFAULT_CONFIG))
+      .catch(() => setConfig(null))
       .finally(() => setReady(true));
   }, []);
 

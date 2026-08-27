@@ -23,17 +23,10 @@ export function restoreConnectionConfig<T extends ContextVmConnectionConfig>(
 }
 
 export type MobileConnectionStatus =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "error";
+  "idle" | "connecting" | "connected" | "error";
 
 export type ConnectionGate =
-  | "loading"
-  | "login"
-  | "reconnecting"
-  | "recovery"
-  | "content";
+  "loading" | "login" | "reconnecting" | "recovery" | "content";
 
 export type ConnectionGateInput = {
   ready: boolean;

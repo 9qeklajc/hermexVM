@@ -1,49 +1,13 @@
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { parseBridgeAllowlist } from "@contexcgi/bridge-auth";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadEnv } from "dotenv";
 import { startHermesBridge } from "./bridge.js";
+import { loadBridgeRuntimeConfig } from "./config.js";
 import { npubEncode } from "./npub.js";
 import { listHermesAgents } from "./profiles.js";
-import type { WhisperTranscriptionConfig } from "./transcription.js";
 
-/**
- * Parses a positive-integer env var and clamps it into [min, max], warning
- * (not crashing) on anything invalid or out of range so a typo'd or hostile
- * value can't push voice transcription past its safe resource limits.
- */
-function clampedEnvNumber(
-  name: string,
-  min: number,
-  max: number,
-): number | undefined {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const value = Number(raw);
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    console.warn(
-      `[bridge] ignoring invalid ${name}=${JSON.stringify(raw)} (must be a positive integer)`,
-    );
-    return undefined;
-  }
-  if (value < min || value > max) {
-    const clamped = Math.min(max, Math.max(min, value));
-    console.warn(
-      `[bridge] clamping ${name}=${value} to ${clamped} (allowed range ${min}-${max})`,
-    );
-    return clamped;
-  }
-  return value;
-}
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    console.error(`Missing required env var ${name}`);
-    process.exit(1);
-  }
-  return value;
-}
+loadEnv({ path: fileURLToPath(new URL("../../../.env", import.meta.url)) });
 
 // A long-running bridge must survive transient relay hiccups. The SDK's
 // open-stream writer can reject a publish deep in a fire-and-forget path;
@@ -57,27 +21,8 @@ process.on("uncaughtException", (error) => {
 });
 
 async function main(): Promise<void> {
-  const privateKey = requireEnv("HERMES_BRIDGE_PRIVATE_KEY");
-  const relays = (
-    process.env.HERMES_BRIDGE_RELAYS ??
-    "wss://relay.contextvm.org,wss://relay.otrta.me,wss://relay.ordoplay.com"
-  )
-    .split(",")
-    .map((relay) => relay.trim())
-    .filter(Boolean);
-  const hermesHome = process.env.HERMES_HOME ?? join(homedir(), ".hermes");
-  const agentRoot =
-    process.env.HERMES_AGENT_ROOT ?? join(hermesHome, "hermes-agent");
-  const dataRoot =
-    process.env.HERMES_BRIDGE_DATA_ROOT ??
-    join(homedir(), ".hermes-bridge", "data");
-
-  // File transfer root: when set, the bridge registers contexcgi.fileTransfer.*
-  // tools so the app can upload arbitrary files. Defaults to a shared directory
-  // under the data root so the agent can read them.
-  const fileTransferRoot =
-    process.env.HERMES_BRIDGE_FILE_TRANSFER_ROOT ??
-    join(homedir(), ".hermes-bridge", "files");
+  const config = loadBridgeRuntimeConfig();
+  const { relays, hermesHome, agentRoot, dataRoot, fileTransferRoot } = config;
 
   if (!existsSync(join(agentRoot, "tui_gateway"))) {
     console.error(
@@ -86,41 +31,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const transcription: WhisperTranscriptionConfig = {
-    enabled: process.env.HERMES_WHISPER_ENABLED === "true",
-    whisperCli: process.env.HERMES_WHISPER_CLI,
-    whisperModel: process.env.HERMES_WHISPER_MODEL,
-    ffmpegPath: process.env.HERMES_FFMPEG,
-    ffprobePath: process.env.HERMES_FFPROBE,
-    // Env can only lower these, never raise them past the service's own safe
-    // defaults (8MiB / 5min) — a misconfigured or hostile value can't turn
-    // into unbounded memory/CPU use per recording.
-    maxAudioBytes: clampedEnvNumber(
-      "HERMES_TRANSCRIPTION_MAX_BYTES",
-      64 * 1024,
-      8 * 1024 * 1024,
-    ),
-    timeoutMs: clampedEnvNumber(
-      "HERMES_TRANSCRIPTION_TIMEOUT_MS",
-      15_000,
-      300_000,
-    ),
-  };
-
-  const bridge = await startHermesBridge({
-    privateKey,
-    relays,
-    agentRoot,
-    hermesHome,
-    dataRoot,
-    fileTransferRoot,
-    public: process.env.HERMES_BRIDGE_PUBLIC === "true",
-    requireEncryption: process.env.HERMES_BRIDGE_REQUIRE_ENCRYPTION === "true",
-    allowedPublicKeys: parseBridgeAllowlist(
-      process.env.CONTEXCGI_ALLOWED_NPUBS,
-    ),
-    transcription,
-  });
+  const bridge = await startHermesBridge(config);
   const agents = listHermesAgents(hermesHome);
   const voiceCapabilities = await bridge.transcription.capabilities();
 

@@ -1273,7 +1273,10 @@ export function registerHermesTools(
         provider: z.string().min(1).optional(),
       },
     },
-    async ({ agentId, chatId, text, cwd, model, provider }, extra): Promise<CallToolResult> => {
+    async (
+      { agentId, chatId, text, cwd, model, provider },
+      extra,
+    ): Promise<CallToolResult> => {
       const missing = requireAgent(agentId);
       if (missing) return missing;
       const stream = getCep41Stream(extra._meta);

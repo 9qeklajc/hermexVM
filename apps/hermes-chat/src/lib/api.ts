@@ -1,4 +1,6 @@
 import { HermesChatClient } from "@contexcgi/client";
+import { getPublicKey, nip19 } from "nostr-tools";
+import { hexToBytes } from "nostr-tools/utils";
 
 export { HermesChatClient } from "@contexcgi/client";
 export type {
@@ -41,39 +43,31 @@ export type HermesConfig = {
   relays: string[];
 };
 
-// Every relay here MUST answer EOSE quickly — the ContextVM client waits for
-// EOSE from ALL relays during connect, so one slow/non-EOSE relay stalls every
-// connection. Vetted 2026-08-26: dropped nostr.mom (now requires 28-bit PoW to
-// publish, so the bridge can't deliver ContextVM data through it) in favour of
-// high-trust, publish-accepting relays. Keep in sync with HERMES_BRIDGE_RELAYS
-// in ~/.hermes-bridge/svc.sh.
-export const DEFAULT_RELAYS = [
-  "wss://relay.contextvm.org",
-  "wss://relay.primal.net",
-  "wss://relay.otrta.me",
-  "wss://relay.ordoplay.com",
-  "wss://nostr.azzamo.net",
-  "wss://nostr.oxtr.dev",
-  "wss://nostr.hifish.org",
-];
-
-// Single-user deployment: hardcode the bridge identity and a fixed device
-// identity so the app just auto-connects — no typing, no per-attempt random
-// key. Mirrors the Paperclip Ops app; the bridge runs as the systemd --user
-// unit hermes-bridge.service with its key in ~/.hermes-bridge/bridge.sec.
-/** The Hermes bridge's Nostr public key (hex). */
+// Non-secret deployment defaults may be injected at build time. Client secret
+// keys must never be supplied through Vite env: VITE_* values are bundled into
+// the public app. Each install generates and persists its own client identity.
+export const DEFAULT_RELAYS = parseRelays(
+  import.meta.env.VITE_HERMEX_DEFAULT_RELAYS ?? "wss://relay.contextvm.org",
+);
 export const DEFAULT_SERVER_PUBKEY =
-  "d1b87ad28b1177e58b86c11db2a64d2cae70657383797557840d69d173f83d0f";
-/** This device's fixed Nostr secret key — stable identity for this one user. */
-export const DEFAULT_CLIENT_KEY =
-  "bf64b6a678e022a4cca90c9ad33b66e9cc7604964f808775a1a911b665ebb14c";
+  import.meta.env.VITE_HERMEX_DEFAULT_SERVER_PUBKEY?.trim() ?? "";
 
-/** The auto-connect configuration this build ships with. */
-export const DEFAULT_CONFIG: HermesConfig = {
-  privateKey: DEFAULT_CLIENT_KEY,
-  serverPubkey: DEFAULT_SERVER_PUBKEY,
-  relays: DEFAULT_RELAYS,
-};
+export function clientNpubFromPrivateKey(privateKey: string): string | null {
+  const value = privateKey.trim();
+  try {
+    const secret = value.startsWith("nsec1")
+      ? (() => {
+          const decoded = nip19.decode(value);
+          if (decoded.type !== "nsec") return null;
+          return decoded.data;
+        })()
+      : hexToBytes(value);
+    if (!(secret instanceof Uint8Array) || secret.length !== 32) return null;
+    return nip19.npubEncode(getPublicKey(secret));
+  } catch {
+    return null;
+  }
+}
 
 export function parseRelays(input: string): string[] {
   return input

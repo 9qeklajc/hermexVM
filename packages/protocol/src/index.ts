@@ -126,11 +126,7 @@ export type GetLocalSessionResult = {
 };
 
 export type BinaryPlatform =
-  | "android"
-  | "linux"
-  | "darwin"
-  | "windows"
-  | "unknown";
+  "android" | "linux" | "darwin" | "windows" | "unknown";
 
 export type BinaryDescriptor = {
   id: string;
@@ -694,12 +690,10 @@ export type PaperclipTranscribeAudioFailure = {
 };
 
 export type PaperclipTranscriptionChunkResult =
-  | PaperclipTranscriptionChunkAck
-  | PaperclipTranscribeAudioFailure;
+  PaperclipTranscriptionChunkAck | PaperclipTranscribeAudioFailure;
 
 export type PaperclipTranscribeAudioResult =
-  | PaperclipTranscribeAudioSuccess
-  | PaperclipTranscribeAudioFailure;
+  PaperclipTranscribeAudioSuccess | PaperclipTranscribeAudioFailure;
 
 export type PaperclipTranscriptionCancelRequest = { uploadId: string };
 /** Always succeeds — cancelling an unknown/already-finalized upload is a no-op. */
@@ -833,11 +827,7 @@ export type HermesHandoffPreview = {
 };
 
 export type HermesHandoffStatus =
-  | "accepted"
-  | "running"
-  | "completed"
-  | "failed"
-  | "interrupted";
+  "accepted" | "running" | "completed" | "failed" | "interrupted";
 
 export type HermesHandoffRecord = {
   schemaVersion: 1;
@@ -1060,13 +1050,7 @@ export type HermesTranscriptionChunkRequest =
 export type HermesTranscriptionChunkResult = PaperclipTranscriptionChunkResult;
 /** Spoken-language hint for hermes transcription; "auto" lets whisper detect. */
 export type HermesTranscriptionLanguage =
-  | "auto"
-  | "en"
-  | "de"
-  | "fr"
-  | "ar"
-  | "es"
-  | "it";
+  "auto" | "en" | "de" | "fr" | "ar" | "es" | "it";
 
 export type HermesTranscribeAudioRequest = Omit<
   PaperclipTranscribeAudioRequest,
@@ -1825,11 +1809,7 @@ export type PiHandoffPreview = {
   previewDigest: string;
 };
 export type PiHandoffStatus =
-  | "accepted"
-  | "running"
-  | "completed"
-  | "failed"
-  | "interrupted";
+  "accepted" | "running" | "completed" | "failed" | "interrupted";
 export type PiHandoffRecord = {
   schemaVersion: 1;
   requestId: string;
@@ -2566,12 +2546,7 @@ export type RoutstrCliMonitorResult = {
 };
 
 export type RoutstrCliLogLevel =
-  | "DEBUG"
-  | "INFO"
-  | "TRACE"
-  | "WARNING"
-  | "ERROR"
-  | "CRITICAL";
+  "DEBUG" | "INFO" | "TRACE" | "WARNING" | "ERROR" | "CRITICAL";
 
 export type RoutstrCliLogEntry = {
   asctime?: string;

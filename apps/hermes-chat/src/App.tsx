@@ -35,7 +35,7 @@ function renderScreen(screen: Screen) {
 
 function Shell() {
   const nav = useNav();
-  const { ready, config, client, status, error, reconnect } =
+  const { ready, config, client, status, error, reconnect, disconnect } =
     useConnectionState();
   const gate = connectionGate({
     ready,
@@ -60,6 +60,9 @@ function Shell() {
             </div>
             <button className="button primary" onClick={reconnect}>
               Retry connection
+            </button>
+            <button className="button secondary" onClick={disconnect}>
+              Edit connection settings
             </button>
           </div>
         </div>

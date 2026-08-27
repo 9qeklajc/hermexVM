@@ -32,7 +32,7 @@ export function requireAllowedPublicKeys(
 ): string[] {
   if (!values?.length) {
     throw new Error(
-      `${BRIDGE_ALLOWLIST_ENV} must contain at least one authorized client npub`,
+      `${BRIDGE_ALLOWLIST_ENV} must contain at least one authorized client npub or 64-character hex public key`,
     );
   }
   return [...new Set(values.map(normalizePublicKey))];

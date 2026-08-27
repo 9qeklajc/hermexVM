@@ -17,9 +17,19 @@ describe("bridge client allowlist", () => {
 
   it("fails closed when the shared allowlist is absent or empty", () => {
     expect(() => parseBridgeAllowlist(undefined)).toThrow(
-      `${BRIDGE_ALLOWLIST_ENV} must contain at least one authorized client npub`,
+      `${BRIDGE_ALLOWLIST_ENV} must contain at least one authorized client npub or 64-character hex public key`,
     );
+    expect(() => parseBridgeAllowlist(" , \n \t ")).toThrow(/at least one/);
     expect(() => requireAllowedPublicKeys([])).toThrow(/at least one/);
+  });
+
+  it("rejects invalid NIP-19 types and mixed valid/invalid lists", () => {
+    expect(() =>
+      parseBridgeAllowlist(`nprofile1qqsp${"q".repeat(20)}`),
+    ).toThrow();
+    expect(() => parseBridgeAllowlist(`${HEX},not-a-pubkey`)).toThrow(
+      `${BRIDGE_ALLOWLIST_ENV} entry 2 must be an npub or 64-character hex public key`,
+    );
   });
 
   it("rejects secrets and malformed entries without echoing their value", () => {

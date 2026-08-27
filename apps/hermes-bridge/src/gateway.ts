@@ -172,8 +172,7 @@ export class HermesGateway {
         this.pending.delete(id);
         clearTimeout(entry.timer);
         const error = frame.error as
-          | { code?: number; message?: string }
-          | undefined;
+          { code?: number; message?: string } | undefined;
         if (error) {
           entry.reject(
             new GatewayRpcError(

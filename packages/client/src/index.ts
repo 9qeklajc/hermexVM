@@ -270,7 +270,7 @@ export class ContexcgiClient {
     const chunks: Uint8Array[] = [];
     let receivedBytes = 0;
 
-    for (let offsetBytes = 0; offsetBytes < binary.sizeBytes; ) {
+    for (let offsetBytes = 0; offsetBytes < binary.sizeBytes;) {
       const result = await this.mcpClient.callTool(
         {
           name: BINARIES_DOWNLOAD_RANGE_TOOL_NAME,
@@ -608,7 +608,7 @@ export class ContexcgiClient {
     const chunks: Uint8Array[] = [];
     let receivedBytes = 0;
 
-    for (let offsetBytes = 0; offsetBytes < file.sizeBytes; ) {
+    for (let offsetBytes = 0; offsetBytes < file.sizeBytes;) {
       const chunk = await this.downloadFileRangeChunk(
         id,
         offsetBytes,

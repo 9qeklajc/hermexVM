@@ -139,11 +139,7 @@ export interface RunLogChunk {
 }
 
 export type ApprovalStatus =
-  | "pending"
-  | "revision_requested"
-  | "approved"
-  | "rejected"
-  | "cancelled";
+  "pending" | "revision_requested" | "approved" | "rejected" | "cancelled";
 
 export type ApprovalType =
   | "hire_agent"

@@ -169,7 +169,10 @@ export class GithubClient {
   }
 
   // -- Repos --
-  repos(input?: { limit?: number; affiliation?: string }): Promise<GithubRepo[]> {
+  repos(input?: {
+    limit?: number;
+    affiliation?: string;
+  }): Promise<GithubRepo[]> {
     return this.call(GITHUB_REPOS_LIST_TOOL_NAME, input ?? {});
   }
   repo(owner: string, repo: string): Promise<GithubRepo> {
