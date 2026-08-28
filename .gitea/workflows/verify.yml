@@ -28,5 +28,14 @@ jobs:
       - name: Run quality gates
         run: pnpm check
 
+      - name: Install pinned nak relay dependency
+        run: |
+          curl --fail --location --silent --show-error \
+            https://github.com/fiatjaf/nak/releases/download/v0.19.9/nak-v0.19.9-linux-amd64 \
+            --output /tmp/nak
+          echo "279dbcfad4efe53f04112fc4eeb9ebf513f95d3533e56e9280977b29fea60feb  /tmp/nak" | sha256sum --check --strict
+          install -D -m 0755 /tmp/nak "$HOME/.local/bin/nak"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run encrypted bridge smoke test
         run: pnpm smoke
