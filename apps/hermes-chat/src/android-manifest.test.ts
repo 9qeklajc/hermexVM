@@ -34,6 +34,11 @@ describe("Android app manifest", () => {
     expect(manifest).toContain('android:windowSoftInputMode="adjustResize"');
   });
 
+  it("does not expose the persisted client identity through Android backups", () => {
+    expect(manifest).toContain('android:allowBackup="false"');
+    expect(manifest).not.toContain('android:allowBackup="true"');
+  });
+
   it("keeps the WebView below the phone status bar on Android 15", () => {
     expect(mainActivity).toContain("WindowCompat.setDecorFitsSystemWindows");
     expect(mainActivity).toContain("getWindow(), true");
