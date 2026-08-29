@@ -8,6 +8,7 @@ import { ConnectScreen } from "./screens/Connect";
 import { AgentsScreen } from "./screens/Agents";
 import { ChatsScreen } from "./screens/Chats";
 import { ChatScreen } from "./screens/Chat";
+import { SettingsScreen } from "./screens/Settings";
 import { Spinner } from "./components/ui";
 import { connectionGate } from "@contexcgi/client";
 
@@ -17,6 +18,8 @@ function renderScreen(screen: Screen) {
       return <ConnectScreen />;
     case "agents":
       return <AgentsScreen />;
+    case "settings":
+      return <SettingsScreen />;
     case "chats":
       return (
         <ChatsScreen agentId={screen.agentId} agentName={screen.agentName} />

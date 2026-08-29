@@ -52,7 +52,7 @@ export const DEFAULT_RELAYS = parseRelays(
 export const DEFAULT_SERVER_PUBKEY =
   import.meta.env.VITE_HERMEX_DEFAULT_SERVER_PUBKEY?.trim() ?? "";
 
-export function clientNpubFromPrivateKey(privateKey: string): string | null {
+function privateKeyBytes(privateKey: string): Uint8Array | null {
   const value = privateKey.trim();
   try {
     const secret = value.startsWith("nsec1")
@@ -63,7 +63,41 @@ export function clientNpubFromPrivateKey(privateKey: string): string | null {
         })()
       : hexToBytes(value);
     if (!(secret instanceof Uint8Array) || secret.length !== 32) return null;
-    return nip19.npubEncode(getPublicKey(secret));
+    // Also reject out-of-range secp256k1 scalars.
+    getPublicKey(secret);
+    return secret;
+  } catch {
+    return null;
+  }
+}
+
+export function clientNpubFromPrivateKey(privateKey: string): string | null {
+  const secret = privateKeyBytes(privateKey);
+  return secret ? nip19.npubEncode(getPublicKey(secret)) : null;
+}
+
+/** Return the canonical nsec representation used by the settings screen. */
+export function clientNsecFromPrivateKey(privateKey: string): string | null {
+  const secret = privateKeyBytes(privateKey);
+  return secret ? nip19.nsecEncode(secret) : null;
+}
+
+/** Normalize a bridge hex/npub/nprofile public key for display and copying. */
+export function npubFromPublicKey(publicKey: string): string | null {
+  const value = publicKey.trim();
+  try {
+    if (value.startsWith("npub1")) {
+      const decoded = nip19.decode(value);
+      return decoded.type === "npub" ? nip19.npubEncode(decoded.data) : null;
+    }
+    if (value.startsWith("nprofile1")) {
+      const decoded = nip19.decode(value);
+      return decoded.type === "nprofile"
+        ? nip19.npubEncode(decoded.data.pubkey)
+        : null;
+    }
+    if (!/^[0-9a-f]{64}$/i.test(value)) return null;
+    return nip19.npubEncode(value.toLowerCase());
   } catch {
     return null;
   }

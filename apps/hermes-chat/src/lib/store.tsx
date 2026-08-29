@@ -26,6 +26,7 @@ import { initNotifications, notificationId, notify } from "./notify";
 export type Screen =
   | { kind: "connect" }
   | { kind: "agents" }
+  | { kind: "settings" }
   | { kind: "chats"; agentId: string; agentName: string }
   | {
       kind: "chat";
