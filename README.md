@@ -3,7 +3,7 @@
 hermexVM is a self-contained Android/web client plus a private ContextVM bridge for a local [Hermes Agent](https://hermes-agent.nousresearch.com) installation.
 
 ```text
-hermexVM app ── encrypted ContextVM over Nostr ──▶ Hermes bridge ── JSON-RPC stdio ──▶ Hermes tui_gateway
+hermexVM app ── encrypted ContextVM over Nostr ──▶ Hermes bridge ── JSON-RPC stdio ──▶ Hermes tui_gateway --> Routstr
 ```
 
 The bridge runs beside Hermes, holds the bridge identity, and accepts calls only from explicitly allowlisted client `npub`s. The Android app generates a unique client identity on first setup; no client secret is shipped in source or in the APK.
