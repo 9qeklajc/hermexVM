@@ -15,6 +15,8 @@ The bridge runs beside Hermes, holds the bridge identity, and accepts calls only
 - `packages/` — local ContextVM protocol, client, authentication, relay, and file-transfer packages.
 - `scripts/` — fake Hermes stack and end-to-end smoke test.
 
+Long conversation text is transferred safely in both directions. User prompts and final MCP results use ContextVM CEP-22 oversized transfer, while live CEP-41 response events use the reusable batched JSONL codec exported by `@contexcgi/protocol`. Individual encrypted frames stay below the NIP-44 ceiling and the client reconstructs the original UTF-8 text before rendering it. The bridge accepts up to 8 MiB of UTF-8 prompt text per turn.
+
 ## Requirements
 
 - Node.js 18+

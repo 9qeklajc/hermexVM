@@ -41,8 +41,9 @@ import {
   FILE_TRANSFER_UPLOAD_FINALIZE_TOOL_NAME,
   FILE_TRANSFER_UPLOAD_INIT_TOOL_NAME,
   FILE_TRANSFER_UPLOAD_STATUS_TOOL_NAME,
+  CONTEXTVM_OVERSIZED_TEXT_TRANSFER,
+  HermesChatEventDecoder,
   parseHermesActivityChunk,
-  parseHermesChatChunk,
   type HermesActivityEvent,
   type HermesAgentProfile,
   type HermesChatEvent,
@@ -207,15 +208,10 @@ export class HermesChatClient {
           maxBufferedBytesPerStream: 64 * 1024 * 1024,
         },
       },
-      oversizedTransfer: {
-        enabled: true,
-        thresholdBytes: 48_000,
-        chunkSizeBytes: 48_000,
-        policy: {
-          maxTransferBytes: 16 * 1024 * 1024,
-          maxTransferChunks: 10_000,
-        },
-      },
+      // CEP-22 fragments long user text and oversized final tool results into
+      // independently encrypted requests/replies. Shared with the bridge so
+      // other clients can adopt the exact same safe transport contract.
+      oversizedTransfer: CONTEXTVM_OVERSIZED_TEXT_TRANSFER,
     });
 
     // Clock-skew guard — a phone clock even ~1s ahead of the bridge silently
@@ -1147,8 +1143,11 @@ async function* readActivityEvents(
 async function* readHermesEvents(
   stream: AsyncIterable<{ value: string }>,
 ): AsyncIterable<HermesChatEvent> {
+  // CEP-41 does not apply CEP-22 to each open-stream chunk. Keep one decoder
+  // for the stream so protocol-level JSONL batches can span many notifications.
+  const decoder = new HermesChatEventDecoder();
   for await (const chunk of stream) {
-    yield* parseHermesChatChunk(chunk.value);
+    yield* decoder.push(chunk.value);
   }
 }
 

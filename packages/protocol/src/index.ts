@@ -1,3 +1,19 @@
+import {
+  BatchedJsonlDecoder,
+  encodeBatchedJsonl,
+  type BatchedJsonlOptions,
+} from "./batched-jsonl.js";
+
+export {
+  BatchedJsonlDecoder,
+  CONTEXTVM_OVERSIZED_TEXT_TRANSFER,
+  DEFAULT_JSONL_FRAME_BYTES,
+  MAX_BATCHED_TEXT_BYTES,
+  encodeBatchedJsonl,
+  utf8ByteLength,
+  type BatchedJsonlOptions,
+} from "./batched-jsonl.js";
+
 export const CONVERSATION_TOOL_NAME = "contexcgi.conversation.send";
 export const AGENTS_LIST_TOOL_NAME = "contexcgi.agents.list";
 export const DISCUSSIONS_LIST_TOOL_NAME = "contexcgi.discussions.list";
@@ -937,12 +953,20 @@ export function encodeHermesChatEvent(event: HermesChatEvent): string {
   return `${JSON.stringify(event)}\n`;
 }
 
+/** Encode one event into independently NIP-44-safe CEP-41 stream frames. */
+export function encodeHermesChatEventFrames(
+  event: HermesChatEvent,
+  options: BatchedJsonlOptions = {},
+): string[] {
+  return encodeBatchedJsonl(event, options);
+}
+
+/** Stateful Hermes decoder; retain one instance for the life of a stream. */
+export class HermesChatEventDecoder extends BatchedJsonlDecoder<HermesChatEvent> {}
+
+/** Parse a complete chunk or concatenated batch (compatibility helper). */
 export function parseHermesChatChunk(chunk: string): HermesChatEvent[] {
-  return chunk
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as HermesChatEvent);
+  return new HermesChatEventDecoder().push(chunk);
 }
 
 export type HermesSendResult = {

@@ -28,8 +28,10 @@ import {
   HERMES_TRANSCRIPTION_CANCEL_TOOL_NAME,
   HERMES_TRANSCRIPTION_CAPABILITIES_TOOL_NAME,
   HERMES_TRANSCRIPTION_CHUNK_TOOL_NAME,
+  MAX_BATCHED_TEXT_BYTES,
   encodeHermesActivityEvent,
-  encodeHermesChatEvent,
+  encodeHermesChatEventFrames,
+  utf8ByteLength,
   type HermesActivityEvent,
   type HermesChatEvent,
   type HermesChatMessage,
@@ -111,6 +113,26 @@ type StreamSink = {
   write(data: string): Promise<void>;
   close(): Promise<void>;
 };
+
+/**
+ * Serialize event writes and split oversized JSONL values into bounded frames.
+ * CEP-22 protects ordinary MCP requests/results, but CEP-41 stream chunks need
+ * protocol-level batching because each chunk is published independently.
+ */
+export function createHermesEventWriter(
+  stream: StreamSink,
+): (event: HermesChatEvent) => Promise<void> {
+  let pending = Promise.resolve();
+  return (event) => {
+    const next = pending.then(async () => {
+      for (const frame of encodeHermesChatEventFrames(event)) {
+        await stream.write(frame);
+      }
+    });
+    pending = next;
+    return next;
+  };
+}
 
 // --- gateway wire shapes (subset the bridge reads) --------------------------
 
@@ -1111,8 +1133,7 @@ export function registerHermesTools(
         return fail(record.error ?? "handoff failed");
       }
 
-      const write = (event: HermesChatEvent) =>
-        stream.write(encodeHermesChatEvent(event));
+      const write = createHermesEventWriter(stream);
       try {
         await write({
           type: "chat.started",
@@ -1265,7 +1286,12 @@ export function registerHermesTools(
       inputSchema: {
         agentId: z.string().min(1),
         chatId: z.string().min(1).optional(),
-        text: z.string().min(1).max(64_000),
+        text: z
+          .string()
+          .min(1)
+          .refine((value) => utf8ByteLength(value) <= MAX_BATCHED_TEXT_BYTES, {
+            message: `text exceeds ${MAX_BATCHED_TEXT_BYTES} UTF-8 bytes`,
+          }),
         cwd: z.string().min(1).max(4096).optional(),
         /** Pin the conversation model for this turn (session-scoped). */
         model: z.string().min(1).optional(),
@@ -1344,8 +1370,7 @@ export function registerHermesTools(
         return fail(error instanceof Error ? error.message : String(error));
       }
 
-      const write = (event: HermesChatEvent) =>
-        stream.write(encodeHermesChatEvent(event));
+      const write = createHermesEventWriter(stream);
       try {
         await write({
           type: "chat.started",
@@ -1387,23 +1412,32 @@ export function registerHermesTools(
             void write({
               type: "error",
               message: "hermes gateway restarted mid-turn",
-            }).catch(() => undefined);
-            finish();
+            })
+              .catch(() => undefined)
+              .finally(finish);
             return;
           }
           if (frame.session_id !== sid) return;
           const mapped = mapGatewayEvent(frame);
           if (!mapped) return;
           lastWrite = Date.now();
-          void write(mapped).catch(() => {
+          const written = write(mapped);
+          if (mapped.type === "message.complete") {
+            finalText = mapped.text;
+            // A terminal response may span hundreds of bounded frames. Do not
+            // close the CEP-41 stream until the serialized writer drains them.
+            void written
+              .catch(() => {
+                interrupted = true;
+              })
+              .finally(finish);
+            return;
+          }
+          void written.catch(() => {
             // Stream gone (client offline past the grace period) — stop pumping.
             interrupted = true;
             finish();
           });
-          if (mapped.type === "message.complete") {
-            finalText = mapped.text;
-            finish();
-          }
         });
         keepaliveTimer = setInterval(() => {
           if (Date.now() - lastWrite >= keepaliveMs) {
@@ -1418,8 +1452,9 @@ export function registerHermesTools(
           void write({
             type: "error",
             message: `turn exceeded ${Math.round(turnTimeoutMs / 60_000)}min — detaching (the agent may still finish; check history)`,
-          }).catch(() => undefined);
-          finish();
+          })
+            .catch(() => undefined)
+            .finally(finish);
         }, turnTimeoutMs);
         if (extra.signal) {
           if (extra.signal.aborted) return onAbort();
@@ -1488,8 +1523,7 @@ export function registerHermesTools(
         );
       }
 
-      const write = (event: HermesChatEvent) =>
-        stream.write(encodeHermesChatEvent(event));
+      const write = createHermesEventWriter(stream);
       await write({ type: "chat.started", agentId, chatId, created: false });
 
       let finalText = "";
@@ -1517,22 +1551,29 @@ export function registerHermesTools(
             void write({
               type: "error",
               message: "hermes gateway restarted mid-turn",
-            }).catch(() => undefined);
-            finish();
+            })
+              .catch(() => undefined)
+              .finally(finish);
             return;
           }
           if (frame.session_id !== sid) return;
           const mapped = mapGatewayEvent(frame);
           if (!mapped) return;
           lastWrite = Date.now();
-          void write(mapped).catch(() => {
+          const written = write(mapped);
+          if (mapped.type === "message.complete") {
+            finalText = mapped.text;
+            void written
+              .catch(() => {
+                interrupted = true;
+              })
+              .finally(finish);
+            return;
+          }
+          void written.catch(() => {
             interrupted = true;
             finish();
           });
-          if (mapped.type === "message.complete") {
-            finalText = mapped.text;
-            finish();
-          }
         });
         keepaliveTimer = setInterval(() => {
           if (Date.now() - lastWrite >= keepaliveMs) {

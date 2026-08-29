@@ -6,6 +6,7 @@ import {
   PrivateKeySigner,
 } from "@contextvm/sdk";
 import { ResilientRelayPool } from "@contexcgi/bridge-relay";
+import { CONTEXTVM_OVERSIZED_TEXT_TRANSFER } from "@contexcgi/protocol";
 import {
   HermesGateway,
   hermesGatewayCommand,
@@ -134,12 +135,9 @@ export async function startHermesBridge(config: HermesBridgeConfig): Promise<{
         maxBufferedBytesPerStream: 64 * 1024 * 1024,
       },
     },
-    oversizedTransfer: {
-      enabled: true,
-      thresholdBytes: 48_000,
-      chunkSizeBytes: 48_000,
-      policy: { maxTransferBytes: 64 * 1024 * 1024, maxTransferChunks: 10_000 },
-    },
+    // Match every text-heavy client: CEP-22 reassembles long inbound prompts
+    // and fragments oversized final MCP results before NIP-44 encryption.
+    oversizedTransfer: CONTEXTVM_OVERSIZED_TEXT_TRANSFER,
     injectClientPubkey: true,
   });
 

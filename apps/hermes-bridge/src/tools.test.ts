@@ -2,13 +2,43 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { HermesChatEventDecoder, utf8ByteLength } from "@contexcgi/protocol";
 import {
   clipToBytes,
+  createHermesEventWriter,
   fitHistory,
   gatewaySessionCreateParams,
   mapGatewayEvent,
 } from "./tools.js";
 import { listHermesAgents, profileParam } from "./profiles.js";
+
+describe("createHermesEventWriter", () => {
+  it("serializes concurrent writes and bounds a long terminal response", async () => {
+    const frames: string[] = [];
+    const write = createHermesEventWriter({
+      isActive: () => true,
+      write: async (frame) => {
+        await Promise.resolve();
+        frames.push(frame);
+      },
+      close: async () => undefined,
+    });
+    const longText = "assistant 🙂 response\n".repeat(8_000);
+
+    await Promise.all([
+      write({ type: "message.complete", text: longText }),
+      write({ type: "status", text: "after-terminal" }),
+    ]);
+
+    expect(frames.length).toBeGreaterThan(2);
+    expect(frames.every((frame) => utf8ByteLength(frame) <= 24_000)).toBe(true);
+    const decoder = new HermesChatEventDecoder();
+    expect(frames.flatMap((frame) => decoder.push(frame))).toEqual([
+      { type: "message.complete", text: longText },
+      { type: "status", text: "after-terminal" },
+    ]);
+  });
+});
 
 describe("gatewaySessionCreateParams", () => {
   it("passes a selected project cwd into session creation before the first turn", () => {

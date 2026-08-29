@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  BatchedJsonlDecoder,
+  CONTEXTVM_OVERSIZED_TEXT_TRANSFER,
+  encodeBatchedJsonl,
   encodeHermesChatEvent,
+  encodeHermesChatEventFrames,
   encodeStreamEvent,
   HERMES_AGENTS_LIST_TOOL_NAME,
   HERMES_CHAT_HISTORY_TOOL_NAME,
@@ -13,6 +17,7 @@ import {
   HERMES_HANDOFF_PREVIEW_TOOL_NAME,
   HERMES_HANDOFF_SEND_TOOL_NAME,
   HERMES_HANDOFFS_LIST_TOOL_NAME,
+  MAX_BATCHED_TEXT_BYTES,
   parseHermesChatChunk,
   type HermesTranscribeAudioRequest,
   parseStreamChunk,
@@ -97,6 +102,87 @@ describe("hermes transcription language contract", () => {
   });
 });
 
+describe("batched JSONL codec", () => {
+  it("splits and reassembles oversized UTF-8 values across bounded frames", () => {
+    const value = {
+      type: "message.complete",
+      text: "🙂 long response\n".repeat(8_000),
+    };
+    const frames = encodeBatchedJsonl(value, { maxFrameBytes: 4_096 });
+    const decoder = new BatchedJsonlDecoder<typeof value>();
+
+    expect(frames.length).toBeGreaterThan(1);
+    expect(
+      frames.every(
+        (frame) => new TextEncoder().encode(frame).byteLength <= 4_096,
+      ),
+    ).toBe(true);
+    expect(frames.flatMap((frame) => decoder.push(frame))).toEqual([value]);
+  });
+
+  it("accepts out-of-order and duplicate batch frames idempotently", () => {
+    const value = { text: "x".repeat(50_000) };
+    const frames = encodeBatchedJsonl(value, { maxFrameBytes: 2_048 });
+    const decoder = new BatchedJsonlDecoder<typeof value>();
+    const reordered = [frames.at(-1)!, ...frames.slice(0, -1)];
+
+    expect(
+      [...reordered, reordered[0]!].flatMap((frame) => decoder.push(frame)),
+    ).toEqual([value]);
+  });
+
+  it("shares CEP-22 limits that cover worst-case JSON escaping", () => {
+    expect(CONTEXTVM_OVERSIZED_TEXT_TRANSFER).toMatchObject({
+      enabled: true,
+      thresholdBytes: 48_000,
+      chunkSizeBytes: 48_000,
+    });
+    const escapedSampleBytes = new TextEncoder().encode(
+      JSON.stringify({ text: "\0".repeat(10_000) }),
+    ).byteLength;
+    const worstCaseEstimate =
+      (escapedSampleBytes / 10_000) * MAX_BATCHED_TEXT_BYTES;
+    expect(
+      CONTEXTVM_OVERSIZED_TEXT_TRANSFER.policy.maxTransferBytes,
+    ).toBeGreaterThan(worstCaseEstimate);
+  });
+
+  it("rejects oversized lines, ids, chunk counts, and aggregate pending data", () => {
+    expect(() =>
+      new BatchedJsonlDecoder({ maxLineBytes: 64 }).push("x".repeat(65)),
+    ).toThrow(/line exceeds/);
+
+    const marker = "contexcgi.jsonl.batch.v1";
+    expect(() =>
+      new BatchedJsonlDecoder({ maxBatchIdLength: 4 }).push(
+        `${JSON.stringify({ $batch: marker, id: "too-long", index: 0, total: 1, data: "" })}\n`,
+      ),
+    ).toThrow(/id exceeds/);
+    expect(() =>
+      new BatchedJsonlDecoder({ maxBatchChunks: 2 }).push(
+        `${JSON.stringify({ $batch: marker, id: "ok", index: 0, total: 3, data: "" })}\n`,
+      ),
+    ).toThrow(/chunk count exceeds/);
+
+    const firstA = encodeBatchedJsonl(
+      { text: "a".repeat(2_000) },
+      { maxFrameBytes: 512 },
+    )[0]!;
+    const firstB = encodeBatchedJsonl(
+      { text: "b".repeat(2_000) },
+      { maxFrameBytes: 512 },
+    )[0]!;
+    const firstPartBytes = atob(
+      (JSON.parse(firstA) as { data: string }).data,
+    ).length;
+    const bounded = new BatchedJsonlDecoder({
+      maxPendingBytes: firstPartBytes,
+    });
+    expect(bounded.push(firstA)).toEqual([]);
+    expect(() => bounded.push(firstB)).toThrow(/Pending batched JSONL data/);
+  });
+});
+
 describe("hermes chat stream codec", () => {
   it("round-trips JSONL hermes chat events", () => {
     const frames = [
@@ -120,6 +206,20 @@ describe("hermes chat stream codec", () => {
       { type: "message.delta", text: "Hello " },
       { type: "message.complete", text: "Hello there!" },
     ]);
+  });
+
+  it("batches a long terminal response and reconstructs it incrementally", () => {
+    const event = {
+      type: "message.complete" as const,
+      text: "A🙂B".repeat(30_000),
+    };
+    const frames = encodeHermesChatEventFrames(event, {
+      maxFrameBytes: 8_192,
+    });
+    const decoder = new BatchedJsonlDecoder<typeof event>();
+
+    expect(frames.length).toBeGreaterThan(1);
+    expect(frames.flatMap((frame) => decoder.push(frame))).toEqual([event]);
   });
 
   it("uses stable, namespaced hermes tool names", () => {
