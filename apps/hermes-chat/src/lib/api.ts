@@ -110,6 +110,17 @@ export function parseRelays(input: string): string[] {
     .filter(Boolean);
 }
 
+export function isValidRelayUrl(relay: string): boolean {
+  try {
+    const url = new URL(relay);
+    return (
+      (url.protocol === "wss:" || url.protocol === "ws:") && Boolean(url.host)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export type RelayReachability = {
   url: string;
   ok: boolean;

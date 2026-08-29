@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import {
   clientNpubFromPrivateKey,
   clientNsecFromPrivateKey,
+  isValidRelayUrl,
   npubFromPublicKey,
+  parseRelays,
 } from "../lib/api";
 import { useConnectionState, useNav } from "../lib/store";
 import { TopBar } from "../components/ui";
@@ -14,13 +16,22 @@ export function SettingsScreen() {
     ? (clientNsecFromPrivateKey(config.privateKey) ?? "")
     : "";
   const [nsec, setNsec] = useState(currentNsec);
+  const [relays, setRelays] = useState(config?.relays.join("\n") ?? "");
   const [revealed, setRevealed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const clientNpub = useMemo(() => clientNpubFromPrivateKey(nsec), [nsec]);
   const bridgeNpub = config ? npubFromPublicKey(config.serverPubkey) : null;
   const canonicalNsec = clientNsecFromPrivateKey(nsec);
-  const changed = canonicalNsec !== null && canonicalNsec !== currentNsec;
+  const identityChanged =
+    canonicalNsec !== null && canonicalNsec !== currentNsec;
+  const parsedRelays = parseRelays(relays);
+  const relaysValid =
+    parsedRelays.length > 0 && parsedRelays.every(isValidRelayUrl);
+  const relaysChanged =
+    relaysValid &&
+    (parsedRelays.length !== config?.relays.length ||
+      parsedRelays.some((relay, index) => relay !== config?.relays[index]));
 
   if (!config) return null;
 
@@ -34,9 +45,15 @@ export function SettingsScreen() {
   };
 
   const saveIdentity = () => {
-    if (!canonicalNsec || !changed) return;
+    if (!canonicalNsec || !identityChanged) return;
     nav.pop();
     connect({ ...config, privateKey: canonicalNsec });
+  };
+
+  const saveRelays = () => {
+    if (!relaysChanged) return;
+    nav.pop();
+    connect({ ...config, relays: parsedRelays });
   };
 
   return (
@@ -108,7 +125,7 @@ export function SettingsScreen() {
           <button
             type="button"
             className="button primary"
-            disabled={!changed}
+            disabled={!identityChanged}
             onClick={saveIdentity}
           >
             Save identity
@@ -137,10 +154,40 @@ export function SettingsScreen() {
               Copy npub
             </button>
           </div>
-          <div className="identity-field">
+          <label className="identity-field relay-editor">
             <span className="identity-label">Relays</span>
-            <code>{config.relays.join("\n")}</code>
-          </div>
+            <span className="field-help">Enter one relay URL per line.</span>
+            <textarea
+              rows={Math.max(3, parsedRelays.length)}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              value={relays}
+              onChange={(event) => {
+                setRelays(event.target.value);
+                setNotice(null);
+              }}
+              aria-invalid={!relaysValid}
+              placeholder={"wss://relay.example\nwss://another-relay.example"}
+            />
+          </label>
+          {!relaysValid ? (
+            <div className="form-error">
+              Enter at least one valid ws:// or wss:// relay URL.
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="button primary"
+            disabled={!relaysChanged}
+            onClick={saveRelays}
+          >
+            Save relays and reconnect
+          </button>
+          <p className="settings-note">
+            Saving immediately reconnects the app through this relay list. Your
+            identity and bridge npub stay unchanged.
+          </p>
         </section>
 
         {notice ? (

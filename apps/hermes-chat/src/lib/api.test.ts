@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   clientNpubFromPrivateKey,
   clientNsecFromPrivateKey,
+  isValidRelayUrl,
   npubFromPublicKey,
+  parseRelays,
 } from "./api";
 
 describe("client identity", () => {
@@ -38,5 +40,21 @@ describe("client identity", () => {
     expect(clientNpubFromPrivateKey("not-a-key")).toBeNull();
     expect(clientNsecFromPrivateKey("not-a-key")).toBeNull();
     expect(npubFromPublicKey("not-a-key")).toBeNull();
+  });
+});
+
+describe("relay settings", () => {
+  it("parses comma- and newline-separated relay lists", () => {
+    expect(parseRelays("wss://one.example, ws://two.example\n")).toEqual([
+      "wss://one.example",
+      "ws://two.example",
+    ]);
+  });
+
+  it("accepts only WebSocket relay URLs", () => {
+    expect(isValidRelayUrl("wss://relay.example")).toBe(true);
+    expect(isValidRelayUrl("ws://localhost:8080")).toBe(true);
+    expect(isValidRelayUrl("https://relay.example")).toBe(false);
+    expect(isValidRelayUrl("not-a-url")).toBe(false);
   });
 });

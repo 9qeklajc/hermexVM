@@ -1193,7 +1193,8 @@ body {
 
 .settings-section-heading p,
 .settings-note,
-.secret-warning {
+.secret-warning,
+.field-help {
   margin-top: 4px;
   color: var(--muted-foreground);
   font-size: 12.5px;
@@ -1250,6 +1251,27 @@ body {
 }
 
 .identity-input-row input[aria-invalid="true"] {
+  border-color: var(--red);
+}
+
+.relay-editor textarea {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  font: 12.5px/1.5 monospace;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.relay-editor textarea:focus {
+  border-color: var(--gold);
+}
+
+.relay-editor textarea[aria-invalid="true"] {
   border-color: var(--red);
 }
 
