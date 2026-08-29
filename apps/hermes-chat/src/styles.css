@@ -1106,6 +1106,20 @@ body {
   text-align: center;
 }
 
+.connect-client-npub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.connect-client-npub code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .form-error {
   font-size: 13px;
   color: var(--red);

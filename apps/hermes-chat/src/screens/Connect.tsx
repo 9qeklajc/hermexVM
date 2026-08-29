@@ -103,8 +103,8 @@ export function ConnectScreen() {
             </button>
           </div>
         </label>
-        <div className="connect-hint">
-          <strong>Client npub to whitelist:</strong>{" "}
+        <div className="connect-hint connect-client-npub">
+          <strong>Client npub to whitelist:</strong>
           <code>{clientNpub ?? "Generate or enter a valid client key"}</code>
           {clientNpub ? (
             <button
