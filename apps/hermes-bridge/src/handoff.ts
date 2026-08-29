@@ -41,6 +41,18 @@ export function handoffMessageDigest(
   return sha256(JSON.stringify([role, text]));
 }
 
+/** True only when an existing destination is the exact source conversation. */
+export function isSourceHandoffDestination(
+  source: HermesConversationRef,
+  destination: HermesHandoffPreviewInput["destination"],
+): boolean {
+  return (
+    destination.kind === "existing" &&
+    destination.agentId === source.agentId &&
+    destination.chatId === source.chatId
+  );
+}
+
 /** Visible transcript rows only. Ordinals refer to the full mapped transcript. */
 export function visibleHandoffMessages(
   transcript: HermesChatMessage[],

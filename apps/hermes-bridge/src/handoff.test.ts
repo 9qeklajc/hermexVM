@@ -15,6 +15,7 @@ import {
   HandoffValidationError,
   createHandoffPreview,
   handoffMessageDigest,
+  isSourceHandoffDestination,
 } from "./handoff.js";
 import { TurnReservations } from "./turn-reservations.js";
 
@@ -44,6 +45,42 @@ afterEach(async () => {
     ),
   );
   temporaryRoots.clear();
+});
+
+describe("handoff destination", () => {
+  it("allows another conversation under the same agent profile", () => {
+    expect(
+      isSourceHandoffDestination(base.source, {
+        kind: "new",
+        agentId: base.source.agentId,
+        title: "Follow-up",
+      }),
+    ).toBe(false);
+    expect(
+      isSourceHandoffDestination(base.source, {
+        kind: "existing",
+        agentId: base.source.agentId,
+        chatId: "another-chat",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects only the exact source conversation", () => {
+    expect(
+      isSourceHandoffDestination(base.source, {
+        kind: "existing",
+        agentId: base.source.agentId,
+        chatId: base.source.chatId,
+      }),
+    ).toBe(true);
+    expect(
+      isSourceHandoffDestination(base.source, {
+        kind: "existing",
+        agentId: "another-agent",
+        chatId: base.source.chatId,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("handoff preview", () => {

@@ -69,6 +69,7 @@ import {
   HandoffValidationError,
   createHandoffPreview,
   handoffMessageDigest,
+  isSourceHandoffDestination,
 } from "./handoff.js";
 
 export type HermesToolsConfig = {
@@ -984,10 +985,8 @@ export function registerHermesTools(
       throw new Error(
         `unknown destination agent: ${input.destination.agentId}`,
       );
-    if (input.destination.agentId === input.source.agentId)
-      throw new Error(
-        "cross-agent handoffs require a different destination agent",
-      );
+    if (isSourceHandoffDestination(input.source, input.destination))
+      throw new Error("handoff destination is the source conversation");
     const resumed = await gateway.request<SessionResumeResponse>(
       "session.resume",
       {

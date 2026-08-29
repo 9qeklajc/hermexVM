@@ -2196,116 +2196,183 @@ body {
   margin-top: 2px;
 }
 
-/* Cross-agent handoff composer */
+/* Cross-agent handoff composer — uses the shared bottom-sheet design. */
 .handoff-composer {
-  width: min(94vw, 680px);
+  position: relative;
   max-height: 90vh;
-  overflow: auto;
-  background: var(--surface, #fff);
-  color: var(--text, #161616);
-  border-radius: 18px;
-  padding: 16px;
+}
+
+.handoff-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   gap: 12px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+  padding: 12px 14px calc(16px + var(--safe-bottom));
+  background: var(--surface);
 }
-.handoff-head {
+
+.handoff-initial-loading {
+  min-height: 360px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 12px;
+  color: var(--muted-foreground);
 }
+
+.handoff-initial-loading .spinner-wrap {
+  flex: 0;
+  padding: 0;
+}
+
 .handoff-tabs {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--background);
 }
-.handoff-tabs button,
-.handoff-history button {
-  border: 1px solid var(--border, #ddd);
+
+.handoff-tabs button {
+  min-height: 36px;
+  border: none;
+  border-radius: 8px;
   background: transparent;
-  color: inherit;
-  border-radius: 999px;
-  padding: 8px 12px;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
 }
+
 .handoff-tabs button.active {
-  background: var(--accent, #6956e8);
-  color: #fff;
+  background: var(--surface-2);
+  color: var(--gold);
 }
+
 .handoff-field {
   display: grid;
   gap: 6px;
-  font-size: 0.86rem;
-  font-weight: 600;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+  font-weight: 650;
 }
+
 .handoff-field input,
 .handoff-field select,
 .handoff-field textarea {
   width: 100%;
-  box-sizing: border-box;
-  border: 1px solid var(--border, #ddd);
+  min-height: 42px;
+  border: 1px solid var(--input-border);
   border-radius: 10px;
-  background: var(--surface-2, #f7f7f7);
-  color: inherit;
-  padding: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 9px 11px;
+  outline: none;
   font: inherit;
+  font-weight: 450;
 }
+
+.handoff-field input:focus,
+.handoff-field select:focus,
+.handoff-field textarea:focus {
+  border-color: var(--gold);
+}
+
+.handoff-field select option {
+  background: var(--background);
+  color: var(--foreground);
+}
+
 .handoff-field textarea {
-  min-height: 76px;
+  min-height: 82px;
   resize: vertical;
 }
+
 .handoff-messages {
-  max-height: 220px;
-  overflow: auto;
+  max-height: 260px;
+  overflow-y: auto;
   display: grid;
   gap: 6px;
 }
+
 .handoff-messages label {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
-  padding: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--surface-2, #f7f7f7);
+  background: var(--background);
 }
+
+.handoff-messages label:has(input:checked) {
+  border-color: var(--gold);
+  background: var(--gold-soft);
+}
+
+.handoff-messages input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  accent-color: var(--gold);
+}
+
 .handoff-messages span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  color: var(--foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+
+.handoff-messages span strong {
+  color: var(--gold);
+}
+
 .handoff-note {
-  margin: 0;
-  opacity: 0.72;
-  font-size: 0.86rem;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
 }
+
 .handoff-preview {
   display: grid;
   gap: 8px;
 }
+
 .handoff-preview pre {
   max-height: 240px;
   overflow: auto;
   white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--surface-2, #f7f7f7);
+  overflow-wrap: anywhere;
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px;
-  font-size: 0.75rem;
+  font-size: 11.5px;
 }
+
 .handoff-history {
-  border-top: 1px solid var(--border, #ddd);
+  border-top: 1px solid var(--border);
   padding-top: 12px;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
-  align-items: center;
 }
+
+.handoff-history button {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--foreground);
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+}
+
 @media (max-width: 540px) {
   .handoff-composer {
-    width: 100vw;
     max-height: 92vh;
-    border-radius: 18px 18px 0 0;
-    align-self: end;
   }
 }

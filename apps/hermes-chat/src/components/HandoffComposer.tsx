@@ -8,6 +8,7 @@ import {
   type HermesHandoffRecord,
 } from "../lib/api";
 import { activityKey, useActivity, useConnection } from "../lib/store";
+import { Spinner } from "./ui";
 
 export type HandoffSeed = {
   role: "user" | "assistant";
@@ -50,6 +51,7 @@ export function HandoffComposer({
   const [instructions, setInstructions] = useState("");
   const [preview, setPreview] = useState<HermesHandoffPreview | null>(null);
   const [history, setHistory] = useState<HermesHandoffRecord[]>([]);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requestId, setRequestId] = useState<string | null>(null);
@@ -64,6 +66,7 @@ export function HandoffComposer({
 
   useEffect(() => {
     const generation = ++mainLoadGeneration.current;
+    setInitialLoading(true);
     setBusy(true);
     Promise.all([
       client.listAgents(),
@@ -72,9 +75,7 @@ export function HandoffComposer({
     ])
       .then(([profiles, transcript, links]) => {
         if (generation !== mainLoadGeneration.current) return;
-        const choices = profiles.filter(
-          (profile) => profile.id !== source.agentId,
-        );
+        const choices = profiles;
         setAgents(choices);
         setHistory(links);
         const visible = transcript.messages.filter(
@@ -131,7 +132,10 @@ export function HandoffComposer({
           setError(cause instanceof Error ? cause.message : String(cause));
       })
       .finally(() => {
-        if (generation === mainLoadGeneration.current) setBusy(false);
+        if (generation === mainLoadGeneration.current) {
+          setInitialLoading(false);
+          setBusy(false);
+        }
       });
     return () => {
       mainLoadGeneration.current += 1;
@@ -317,239 +321,271 @@ export function HandoffComposer({
     >
       <div
         ref={dialogRef}
-        className="handoff-composer"
+        className="modal-sheet handoff-composer"
         role="dialog"
         aria-modal="true"
         aria-label="Send context to another agent"
+        aria-busy={initialLoading}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="handoff-head">
-          <strong>Send to another agent</strong>
+        <div className="modal-handle" />
+        <div className="modal-header">
+          <h2>Send to another agent</h2>
           <button
+            type="button"
             className="icon-button"
             onClick={onClose}
             aria-label="Close"
             disabled={deliveryLocked}
           >
-            ×
-          </button>
-        </div>
-        {error ? <div className="screen-error">{error}</div> : null}
-        <div className="handoff-tabs">
-          <button
-            className={mode === "selected" ? "active" : ""}
-            onClick={() => {
-              setMode("selected");
-              invalidatePreview();
-            }}
-          >
-            Selected
-          </button>
-          <button
-            className={mode === "full" ? "active" : ""}
-            onClick={() => {
-              setMode("full");
-              invalidatePreview();
-            }}
-          >
-            Full transcript
-          </button>
-        </div>
-        {mode === "selected" ? (
-          <div className="handoff-messages">
-            {visible.map((message) => (
-              <label key={`${message.ordinal}:${message.digest}`}>
-                <input
-                  type="checkbox"
-                  checked={selected.has(message.ordinal)}
-                  onChange={() => {
-                    invalidatePreview();
-                    setSelected((current) => {
-                      const next = new Set(current);
-                      if (next.has(message.ordinal))
-                        next.delete(message.ordinal);
-                      else next.add(message.ordinal);
-                      return next;
-                    });
-                  }}
-                />
-                <span>
-                  <strong>
-                    {message.role === "user" ? "You" : source.agentId}
-                  </strong>{" "}
-                  {message.text}
-                </span>
-              </label>
-            ))}
-          </div>
-        ) : (
-          <p className="handoff-note">
-            Includes {visible.length} visible user/assistant messages. Tools,
-            system prompts, thinking, and approvals are excluded.
-          </p>
-        )}
-        <label className="handoff-field">
-          Destination agent
-          <select
-            value={agentId}
-            onChange={(event) => {
-              setAgentId(event.target.value);
-              invalidatePreview();
-            }}
-          >
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="handoff-tabs">
-          <button
-            className={kind === "new" ? "active" : ""}
-            onClick={() => {
-              setKind("new");
-              invalidatePreview();
-            }}
-          >
-            New conversation
-          </button>
-          <button
-            className={kind === "existing" ? "active" : ""}
-            onClick={() => {
-              setKind("existing");
-              invalidatePreview();
-            }}
-          >
-            Existing
-          </button>
-        </div>
-        {kind === "new" ? (
-          <label className="handoff-field">
-            Title
-            <input
-              value={title}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                invalidatePreview();
-              }}
-              placeholder="Conversation title"
-            />
-          </label>
-        ) : (
-          <label className="handoff-field">
-            Conversation
-            <select
-              value={existingChatId}
-              onChange={(event) => {
-                setExistingChatId(event.target.value);
-                invalidatePreview();
-              }}
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              {chats.map((chat) => {
-                const active = activity.running.has(
-                  activityKey(agentId, chat.id),
-                );
-                return (
-                  <option key={chat.id} value={chat.id} disabled={active}>
-                    {chat.title || chat.preview || "Untitled"}
-                    {active ? " (working)" : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-        )}
-        <label className="handoff-field">
-          Instructions
-          <textarea
-            value={instructions}
-            onChange={(event) => {
-              setInstructions(event.target.value);
-              invalidatePreview();
-            }}
-            placeholder="What should the destination agent do?"
-          />
-        </label>
-        {preview ? (
-          <div className="handoff-preview">
-            <strong>
-              Exact destination prompt · {preview.byteCount.toLocaleString()}{" "}
-              UTF-8 bytes
-            </strong>
-            <pre>{preview.envelope}</pre>
-            <button
-              className="button primary"
-              disabled={busy}
-              onClick={() => void confirm()}
-            >
-              {busy
-                ? "Sending…"
-                : terminalRetry
-                  ? "Check same delivery"
-                  : "Confirm and send"}
-            </button>
-            {terminalRetry ? (
-              <button
-                className="button secondary"
-                disabled={busy}
-                onClick={() => {
-                  setRequestId(crypto.randomUUID());
-                  setTerminalRetry(false);
-                  setError(null);
-                }}
-              >
-                Start new delivery
-              </button>
-            ) : null}
-          </div>
-        ) : (
-          <button
-            className="button primary"
-            disabled={!readyForPreview || busy}
-            onClick={() => void requestPreview()}
-          >
-            {busy ? "Loading…" : "Preview handoff"}
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
           </button>
-        )}
-        {history.length ? (
-          <div className="handoff-history">
-            <strong>Linked conversations</strong>
-            {history.map((record) => {
-              const recordedDestinationChatId =
-                record.destinationChatId ??
-                (record.destination.kind === "existing"
-                  ? record.destination.chatId
-                  : "");
-              const incoming =
-                record.destination.agentId === source.agentId &&
-                recordedDestinationChatId === source.chatId;
-              const agent = incoming
-                ? record.source.agentId
-                : record.destination.agentId;
-              const chatId = incoming
-                ? record.source.chatId
-                : recordedDestinationChatId;
-              return (
+        </div>
+        <div className="handoff-body">
+          {initialLoading ? (
+            <div
+              className="handoff-initial-loading"
+              role="status"
+              aria-label="Loading agents and conversations"
+            >
+              <Spinner />
+              <span>Loading agents and conversations…</span>
+            </div>
+          ) : (
+            <>
+              {error ? <div className="screen-error">{error}</div> : null}
+              <div className="handoff-tabs">
                 <button
-                  key={record.requestId}
-                  disabled={!chatId}
-                  onClick={() =>
-                    chatId &&
-                    onNavigate(
-                      agent,
-                      chatId,
-                      incoming ? record.source.title : record.destination.title,
-                    )
-                  }
+                  className={mode === "selected" ? "active" : ""}
+                  onClick={() => {
+                    setMode("selected");
+                    invalidatePreview();
+                  }}
                 >
-                  {incoming ? "From" : "To"} {agent} · {record.status}
+                  Selected
                 </button>
-              );
-            })}
-          </div>
-        ) : null}
+                <button
+                  className={mode === "full" ? "active" : ""}
+                  onClick={() => {
+                    setMode("full");
+                    invalidatePreview();
+                  }}
+                >
+                  Full transcript
+                </button>
+              </div>
+              {mode === "selected" ? (
+                <div className="handoff-messages">
+                  {visible.map((message) => (
+                    <label key={`${message.ordinal}:${message.digest}`}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(message.ordinal)}
+                        onChange={() => {
+                          invalidatePreview();
+                          setSelected((current) => {
+                            const next = new Set(current);
+                            if (next.has(message.ordinal))
+                              next.delete(message.ordinal);
+                            else next.add(message.ordinal);
+                            return next;
+                          });
+                        }}
+                      />
+                      <span>
+                        <strong>
+                          {message.role === "user" ? "You" : source.agentId}
+                        </strong>{" "}
+                        {message.text}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="handoff-note">
+                  Includes {visible.length} visible user/assistant messages.
+                  Tools, system prompts, thinking, and approvals are excluded.
+                </p>
+              )}
+              <label className="handoff-field">
+                Destination agent
+                <select
+                  value={agentId}
+                  onChange={(event) => {
+                    setAgentId(event.target.value);
+                    invalidatePreview();
+                  }}
+                >
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="handoff-tabs">
+                <button
+                  className={kind === "new" ? "active" : ""}
+                  onClick={() => {
+                    setKind("new");
+                    invalidatePreview();
+                  }}
+                >
+                  New conversation
+                </button>
+                <button
+                  className={kind === "existing" ? "active" : ""}
+                  onClick={() => {
+                    setKind("existing");
+                    invalidatePreview();
+                  }}
+                >
+                  Existing
+                </button>
+              </div>
+              {kind === "new" ? (
+                <label className="handoff-field">
+                  Title
+                  <input
+                    value={title}
+                    onChange={(event) => {
+                      setTitle(event.target.value);
+                      invalidatePreview();
+                    }}
+                    placeholder="Conversation title"
+                  />
+                </label>
+              ) : (
+                <label className="handoff-field">
+                  Conversation
+                  <select
+                    value={existingChatId}
+                    onChange={(event) => {
+                      setExistingChatId(event.target.value);
+                      invalidatePreview();
+                    }}
+                  >
+                    {chats.map((chat) => {
+                      const active = activity.running.has(
+                        activityKey(agentId, chat.id),
+                      );
+                      return (
+                        <option key={chat.id} value={chat.id} disabled={active}>
+                          {chat.title || chat.preview || "Untitled"}
+                          {active ? " (working)" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+              )}
+              <label className="handoff-field">
+                Instructions
+                <textarea
+                  value={instructions}
+                  onChange={(event) => {
+                    setInstructions(event.target.value);
+                    invalidatePreview();
+                  }}
+                  placeholder="What should the destination agent do?"
+                />
+              </label>
+              {preview ? (
+                <div className="handoff-preview">
+                  <strong>
+                    Exact destination prompt ·{" "}
+                    {preview.byteCount.toLocaleString()} UTF-8 bytes
+                  </strong>
+                  <pre>{preview.envelope}</pre>
+                  <button
+                    className="button primary"
+                    disabled={busy}
+                    onClick={() => void confirm()}
+                  >
+                    {busy
+                      ? "Sending…"
+                      : terminalRetry
+                        ? "Check same delivery"
+                        : "Confirm and send"}
+                  </button>
+                  {terminalRetry ? (
+                    <button
+                      className="button secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        setRequestId(crypto.randomUUID());
+                        setTerminalRetry(false);
+                        setError(null);
+                      }}
+                    >
+                      Start new delivery
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <button
+                  className="button primary"
+                  disabled={!readyForPreview || busy}
+                  onClick={() => void requestPreview()}
+                >
+                  {busy ? "Loading…" : "Preview handoff"}
+                </button>
+              )}
+              {history.length ? (
+                <div className="handoff-history">
+                  <strong>Linked conversations</strong>
+                  {history.map((record) => {
+                    const recordedDestinationChatId =
+                      record.destinationChatId ??
+                      (record.destination.kind === "existing"
+                        ? record.destination.chatId
+                        : "");
+                    const incoming =
+                      record.destination.agentId === source.agentId &&
+                      recordedDestinationChatId === source.chatId;
+                    const agent = incoming
+                      ? record.source.agentId
+                      : record.destination.agentId;
+                    const chatId = incoming
+                      ? record.source.chatId
+                      : recordedDestinationChatId;
+                    return (
+                      <button
+                        key={record.requestId}
+                        disabled={!chatId}
+                        onClick={() =>
+                          chatId &&
+                          onNavigate(
+                            agent,
+                            chatId,
+                            incoming
+                              ? record.source.title
+                              : record.destination.title,
+                          )
+                        }
+                      >
+                        {incoming ? "From" : "To"} {agent} · {record.status}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

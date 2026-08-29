@@ -307,7 +307,27 @@ async function main(): Promise<void> {
     );
     console.log("✓ history + chat list");
 
-    // 5. Canonical cross-agent handoff into a new destination conversation.
+    // 5. A handoff may target another conversation under the same profile.
+    const sameAgentPreview = await client.previewHandoff({
+      source: { agentId: "coder", chatId, title: "Source" },
+      mode: "full",
+      destination: {
+        kind: "existing",
+        agentId: "coder",
+        chatId: "20260725_090000_aaaaaa",
+        title: "Existing coder chat",
+      },
+      instructions: "Continue this context in the existing conversation.",
+    });
+    assert(
+      sameAgentPreview.destination.kind === "existing" &&
+        sameAgentPreview.destination.agentId === "coder" &&
+        sameAgentPreview.destination.chatId === "20260725_090000_aaaaaa",
+      "same-agent handoff preview accepted a different conversation",
+    );
+    console.log("✓ same-agent handoff to a different conversation");
+
+    // 6. Canonical cross-agent handoff into a new destination conversation.
     const handoffPreview = await client.previewHandoff({
       source: { agentId: "coder", chatId, title: "Source" },
       mode: "full",
