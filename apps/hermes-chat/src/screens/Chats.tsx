@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { HermesChatSummary } from "../lib/api";
 import { formatChatTime, sourceBadge } from "../lib/chat";
 import { activityKey, useActivity, useConnection, useNav } from "../lib/store";
@@ -10,6 +10,20 @@ import {
   TopBar,
   WorkingDot,
 } from "../components/ui";
+
+const CHAT_PAGE_SIZE = 20;
+
+export function mergeChatPages<T extends { id: string }>(
+  current: T[],
+  page: T[],
+  placement: "front" | "back",
+): T[] {
+  const pageIds = new Set(page.map((item) => item.id));
+  const remaining = current.filter((item) => !pageIds.has(item.id));
+  return placement === "front"
+    ? [...page, ...remaining]
+    : [...remaining, ...page];
+}
 
 export function ChatsScreen({
   agentId,
@@ -23,18 +37,61 @@ export function ChatsScreen({
   const activity = useActivity();
   const [chats, setChats] = useState<HermesChatSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
+
+  const mergePage = useCallback(
+    (page: HermesChatSummary[], placement: "front" | "back" = "front") => {
+      setChats((current) =>
+        current ? mergeChatPages(current, page, placement) : page,
+      );
+    },
+    [],
+  );
 
   const reload = useCallback(() => {
     client
-      .listChats(agentId)
-      .then(setChats)
+      .listChats(agentId, CHAT_PAGE_SIZE, 0)
+      .then((page) => {
+        setError(null);
+        setHasMore(page.length === CHAT_PAGE_SIZE);
+        mergePage(page);
+      })
       .catch((cause: unknown) => {
         // Don't flash a permanent error for a transient transport drop during
         // a reconnect/background-return — the store reconnects and re-fetches.
         if (isTransientTransportError(cause)) return;
         setError(cause instanceof Error ? cause.message : String(cause));
       });
-  }, [client, agentId]);
+  }, [client, agentId, mergePage]);
+
+  const loadMore = useCallback(() => {
+    if (!chats || !hasMore || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    client
+      .listChats(agentId, CHAT_PAGE_SIZE, chats.length)
+      .then((page) => {
+        setHasMore(page.length === CHAT_PAGE_SIZE);
+        mergePage(page, "back");
+      })
+      .catch((cause: unknown) => {
+        if (!isTransientTransportError(cause)) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      })
+      .finally(() => {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      });
+  }, [agentId, chats, client, hasMore, mergePage]);
+
+  useEffect(() => {
+    setChats(null);
+    setError(null);
+    setHasMore(true);
+  }, [agentId]);
 
   useEffect(() => {
     reload();
@@ -72,7 +129,7 @@ export function ChatsScreen({
         title={agentName}
         subtitle={
           chats
-            ? `${chats.length} conversation${chats.length === 1 ? "" : "s"}`
+            ? `${chats.length}${hasMore ? "+" : ""} conversation${chats.length === 1 ? "" : "s"}`
             : "…"
         }
         leading={<Avatar name={agentName} size={34} />}
@@ -87,7 +144,15 @@ export function ChatsScreen({
           hint="Start the first one below."
         />
       ) : (
-        <div className="list">
+        <div
+          className="list"
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            if (el.scrollHeight - el.clientHeight - el.scrollTop <= 120) {
+              loadMore();
+            }
+          }}
+        >
           {chats.map((chat) => {
             const badge = sourceBadge(chat.source);
             const working = activity.running.has(activityKey(agentId, chat.id));
@@ -127,6 +192,9 @@ export function ChatsScreen({
               </button>
             );
           })}
+          {loadingMore ? (
+            <div className="pagination-status">Loading more…</div>
+          ) : null}
         </div>
       )}
       <button

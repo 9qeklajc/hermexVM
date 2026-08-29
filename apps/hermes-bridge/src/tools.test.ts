@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { HermesChatEventDecoder, utf8ByteLength } from "@contexcgi/protocol";
 import {
+  clipJsonStringToBytes,
   clipToBytes,
   createHermesEventWriter,
   fitHistory,
@@ -314,6 +315,13 @@ describe("clipToBytes", () => {
     const { text } = clipToBytes("あ".repeat(100), 30);
     expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(30);
   });
+
+  it("clips by JSON bytes when escaping expands the wire value", () => {
+    const text = clipJsonStringToBytes("\0".repeat(10_000), 4_000);
+    expect(Buffer.byteLength(JSON.stringify(text), "utf8")).toBeLessThanOrEqual(
+      4_000,
+    );
+  });
 });
 
 describe("fitHistory", () => {
@@ -351,9 +359,35 @@ describe("fitHistory", () => {
     // Newest survives, oldest is the one dropped, order stays chronological.
     expect(fitted.messages.at(-1)!.ordinal).toBe(39);
     expect(fitted.messages[0]!.ordinal).toBeGreaterThan(0);
+    expect(fitted.nextBeforeOrdinal).toBe(fitted.messages[0]!.ordinal);
     expect(
       Buffer.byteLength(JSON.stringify(fitted.messages), "utf8"),
     ).toBeLessThan(65_535);
+  });
+
+  it("loads the next older page before the supplied ordinal", () => {
+    const messages = Array.from({ length: 40 }, (_, i) =>
+      msg(`${i}:${"y".repeat(5_000)}`, i),
+    );
+    const newest = fitHistory(messages);
+    const older = fitHistory(messages, newest.nextBeforeOrdinal);
+
+    expect(older.messages.at(-1)!.ordinal).toBeLessThan(
+      newest.messages[0]!.ordinal!,
+    );
+    expect(
+      older.messages.every(
+        (message) => message.ordinal! < newest.messages[0]!.ordinal!,
+      ),
+    ).toBe(true);
+  });
+
+  it("accounts for JSON escaping when clipping the newest message", () => {
+    const fitted = fitHistory([msg("\0".repeat(20_000), 0)]);
+
+    expect(
+      Buffer.byteLength(JSON.stringify(fitted.messages), "utf8"),
+    ).toBeLessThanOrEqual(20_000);
   });
 
   it("clips an enormous newest message rather than dropping its neighbours", () => {

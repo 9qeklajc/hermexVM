@@ -10,6 +10,7 @@ export {
 export type {
   HermesAgentProfile,
   HermesChatEvent,
+  HermesChatHistoryResult,
   HermesChatMessage,
   HermesChatSummary,
   HermesChatTurn,

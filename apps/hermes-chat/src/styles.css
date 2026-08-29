@@ -194,6 +194,13 @@ body {
   background: var(--surface);
 }
 
+.pagination-status {
+  padding: 10px 14px;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+  text-align: center;
+}
+
 .row-body {
   flex: 1;
   min-width: 0;

@@ -27,6 +27,7 @@ import {
   HERMES_MODELS_LIST_TOOL_NAME,
   HERMES_MODEL_SWITCH_TOOL_NAME,
   HERMES_PROJECTS_LIST_TOOL_NAME,
+  HERMES_RELAYS_ENSURE_TOOL_NAME,
   HERMES_SESSION_CWD_SET_TOOL_NAME,
   HERMES_SKILLS_LIST_TOOL_NAME,
   HERMES_TRANSCRIBE_AUDIO_TOOL_NAME,
@@ -58,6 +59,7 @@ import {
   type HermesModelOptions,
   type HermesModelSwitchResult,
   type HermesProjectsResult,
+  type HermesRelaysEnsureResult,
   type HermesSendResult,
   type HermesSetCwdResult,
   type HermesSetTitleResult,
@@ -270,6 +272,12 @@ export class HermesChatClient {
     await this.mcpClient.connect(this.transport);
   }
 
+  ensureBridgeRelays(relays: string[]): Promise<HermesRelaysEnsureResult> {
+    return this.call<HermesRelaysEnsureResult>(HERMES_RELAYS_ENSURE_TOOL_NAME, {
+      relays,
+    });
+  }
+
   async close(): Promise<void> {
     await this.mcpClient.close();
   }
@@ -357,10 +365,14 @@ export class HermesChatClient {
   }
 
   // -- conversations -----------------------------------------------------------
-  async listChats(agentId: string, limit = 50): Promise<HermesChatSummary[]> {
+  async listChats(
+    agentId: string,
+    limit = 20,
+    offset = 0,
+  ): Promise<HermesChatSummary[]> {
     const payload = await this.call<{ items: HermesChatSummary[] }>(
       HERMES_CHATS_LIST_TOOL_NAME,
-      { agentId, limit },
+      { agentId, limit, offset },
     );
     return payload.items ?? [];
   }
@@ -368,10 +380,12 @@ export class HermesChatClient {
   chatHistory(
     agentId: string,
     chatId: string,
+    beforeOrdinal?: number,
   ): Promise<HermesChatHistoryResult> {
     return this.call<HermesChatHistoryResult>(HERMES_CHAT_HISTORY_TOOL_NAME, {
       agentId,
       chatId,
+      ...(beforeOrdinal === undefined ? {} : { beforeOrdinal }),
     });
   }
 

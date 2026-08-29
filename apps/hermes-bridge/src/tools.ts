@@ -330,9 +330,13 @@ export function paginateSkills(
  * These budgets leave generous room for the MCP/JSON-RPC framing and the rest
  * of the result envelope that share the same 65535-byte plaintext.
  */
-const HISTORY_BUDGET_BYTES = 40_000;
+// Keep the complete structured result below the project's 24 KB single-event
+// frame size. After the MCP/JSON-RPC wrapper and NIP-44 expansion this remains
+// accepted by relays with conservative event-size limits.
+const HISTORY_RESULT_TARGET_BYTES = 22_000;
+const HISTORY_BUDGET_BYTES = 20_000;
 const MESSAGE_TEXT_MAX_BYTES = 12_000;
-const INFLIGHT_TEXT_MAX_BYTES = 8_000;
+const INFLIGHT_TEXT_JSON_MAX_BYTES = 4_000;
 const CLIP_MARKER = "\n\n[… truncated to fit one ContextVM message …]";
 
 /** Clip to at most `maxBytes` UTF-8 bytes without splitting a codepoint. */
@@ -349,31 +353,96 @@ export function clipToBytes(
   return { text: buf.subarray(0, end).toString("utf8"), clipped: true };
 }
 
+/** Clip a string by its JSON-encoded size, which may be up to 6× its UTF-8 size. */
+export function clipJsonStringToBytes(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(JSON.stringify(text), "utf8") <= maxBytes) return text;
+  let low = 0;
+  let high = Math.min(Buffer.byteLength(text, "utf8"), maxBytes);
+  let best = "";
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = clipToBytes(text, middle).text;
+    if (Buffer.byteLength(JSON.stringify(candidate), "utf8") <= maxBytes) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best;
+}
+
+function fitHistoryMessage(
+  original: HermesChatMessage,
+  maxBytes: number,
+): HermesChatMessage {
+  const rawLimit = Math.min(
+    Buffer.byteLength(original.text, "utf8"),
+    MESSAGE_TEXT_MAX_BYTES,
+  );
+  const candidate = (textBytes: number): HermesChatMessage => {
+    const clipped = clipToBytes(original.text, textBytes);
+    return clipped.clipped
+      ? {
+          ...original,
+          text: `${clipped.text}${CLIP_MARKER}`,
+          truncated: true,
+        }
+      : original;
+  };
+
+  let message = candidate(rawLimit);
+  if (Buffer.byteLength(JSON.stringify(message), "utf8") <= maxBytes) {
+    return message;
+  }
+
+  let low = 0;
+  let high = rawLimit;
+  message = candidate(0);
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const next = candidate(middle);
+    if (Buffer.byteLength(JSON.stringify(next), "utf8") <= maxBytes) {
+      message = next;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return message;
+}
+
 /**
- * Fit a transcript into one ContextVM reply, keeping the newest messages —
- * what a chat view actually renders first — and reporting what was dropped.
+ * Fit one backward-paginated transcript range into one ContextVM reply,
+ * keeping the newest messages in that range and reporting the next cursor.
  */
-export function fitHistory(messages: HermesChatMessage[]): {
+export function fitHistory(
+  messages: HermesChatMessage[],
+  beforeOrdinal?: number,
+  budgetBytes = HISTORY_BUDGET_BYTES,
+): {
   messages: HermesChatMessage[];
   omitted: number;
+  nextBeforeOrdinal?: number;
 } {
+  const eligible =
+    beforeOrdinal === undefined
+      ? messages
+      : messages.filter(
+          (message) =>
+            message.ordinal === undefined || message.ordinal < beforeOrdinal,
+        );
   const kept: HermesChatMessage[] = [];
   let used = 0;
   let omitted = 0;
 
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const original = messages[i]!;
-    const { text, clipped } = clipToBytes(
-      original.text,
-      MESSAGE_TEXT_MAX_BYTES,
-    );
-    const message: HermesChatMessage = clipped
-      ? { ...original, text: `${text}${CLIP_MARKER}`, truncated: true }
-      : original;
+  for (let i = eligible.length - 1; i >= 0; i -= 1) {
+    const original = eligible[i]!;
+    const message = fitHistoryMessage(original, budgetBytes);
     const size = Buffer.byteLength(JSON.stringify(message), "utf8");
     // Always keep at least the newest message: it is already clipped to
     // MESSAGE_TEXT_MAX_BYTES, so it cannot overflow the reply on its own.
-    if (kept.length > 0 && used + size > HISTORY_BUDGET_BYTES) {
+    if (kept.length > 0 && used + size > budgetBytes) {
       omitted = i + 1;
       break;
     }
@@ -382,7 +451,12 @@ export function fitHistory(messages: HermesChatMessage[]): {
   }
 
   kept.reverse();
-  return { messages: kept, omitted };
+  const nextBeforeOrdinal = omitted ? kept[0]?.ordinal : undefined;
+  return {
+    messages: kept,
+    omitted,
+    ...(nextBeforeOrdinal === undefined ? {} : { nextBeforeOrdinal }),
+  };
 }
 
 function getCep41Stream(meta: unknown): StreamSink | undefined {
@@ -716,20 +790,26 @@ export function registerHermesTools(
       inputSchema: {
         agentId: z.string().min(1),
         limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).max(10_000).optional(),
       },
     },
-    async ({ agentId, limit }) => {
+    async ({ agentId, limit, offset }) => {
       const missing = requireAgent(agentId);
       if (missing) return missing;
+      const pageLimit = limit ?? 20;
+      const pageOffset = offset ?? 0;
+      // tui_gateway does not expose an offset yet. Fetch through the requested
+      // page, then return only that bounded slice over Nostr.
       const response = await gateway.request<SessionListResponse>(
         "session.list",
         {
           profile: profileParam(agentId),
-          limit: limit ?? 50,
+          limit: pageOffset + pageLimit,
         },
       );
-      const chats: HermesChatSummary[] = (response.sessions ?? []).map(
-        (session) => ({
+      const chats: HermesChatSummary[] = (response.sessions ?? [])
+        .slice(pageOffset, pageOffset + pageLimit)
+        .map((session) => ({
           id: str(session.id) ?? "",
           agentId,
           title: str(session.title) ?? "",
@@ -741,8 +821,7 @@ export function registerHermesTools(
               ? session.message_count
               : 0,
           source: str(session.source) ?? "",
-        }),
-      );
+        }));
       return okList(chats, "chats");
     },
   );
@@ -769,10 +848,14 @@ export function registerHermesTools(
     {
       title: "Read a conversation transcript",
       description:
-        "Returns the message history of one conversation, attaching it to a live Hermes session so the next send is instant.",
-      inputSchema: { agentId: z.string().min(1), chatId: z.string().min(1) },
+        "Returns one Nostr-sized page of a conversation transcript, newest first by default, and attaches it to a live Hermes session.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        chatId: z.string().min(1),
+        beforeOrdinal: z.number().int().min(0).optional(),
+      },
     },
-    async ({ agentId, chatId }) => {
+    async ({ agentId, chatId, beforeOrdinal }) => {
       const missing = requireAgent(agentId);
       if (missing) return missing;
       // Always resume (even when already attached): the resume payload is the
@@ -788,7 +871,6 @@ export function registerHermesTools(
       );
       const sid = str(resumed.session_id);
       if (sid) live.set(agentId, chatId, sid);
-      const { messages, omitted } = fitHistory(mapTranscript(resumed.messages));
       const context = resumed.info
         ? {
             ...(str(resumed.info.model) ? { model: resumed.info.model } : {}),
@@ -800,32 +882,55 @@ export function registerHermesTools(
         : undefined;
       const running =
         Boolean(resumed.running) || Boolean(sid && turnBySid.has(sid));
-      // The in-flight snapshot shares the same 65535-byte plaintext, and a long
-      // running turn's assistant text grows without bound, so clip it too.
+      // Charge JSON-encoded bytes here: control characters can expand sixfold
+      // when the final MCP result is serialized.
       const inflightUser = str(resumed.inflight?.user);
       const inflightAssistant = str(resumed.inflight?.assistant);
       const inflight = resumed.inflight
         ? {
             ...(inflightUser
               ? {
-                  user: clipToBytes(inflightUser, INFLIGHT_TEXT_MAX_BYTES).text,
+                  user: clipJsonStringToBytes(
+                    inflightUser,
+                    INFLIGHT_TEXT_JSON_MAX_BYTES,
+                  ),
                 }
               : {}),
             ...(inflightAssistant
               ? {
-                  assistant: clipToBytes(
+                  assistant: clipJsonStringToBytes(
                     inflightAssistant,
-                    INFLIGHT_TEXT_MAX_BYTES,
-                  ).text,
+                    INFLIGHT_TEXT_JSON_MAX_BYTES,
+                  ),
                 }
               : {}),
           }
         : undefined;
+      const baseResult = {
+        agentId,
+        chatId,
+        ...(context && Object.keys(context).length ? { context } : {}),
+        running,
+        ...(running && inflight && Object.keys(inflight).length
+          ? { inflight }
+          : {}),
+      };
+      const baseBytes = Buffer.byteLength(JSON.stringify(baseResult), "utf8");
+      const messageBudget = Math.max(
+        1_000,
+        HISTORY_RESULT_TARGET_BYTES - baseBytes - 512,
+      );
+      const { messages, omitted, nextBeforeOrdinal } = fitHistory(
+        mapTranscript(resumed.messages),
+        beforeOrdinal,
+        messageBudget,
+      );
       return ok(
         {
           agentId,
           chatId,
           messages,
+          ...(nextBeforeOrdinal === undefined ? {} : { nextBeforeOrdinal }),
           ...(context && Object.keys(context).length ? { context } : {}),
           running,
           ...(running && inflight && Object.keys(inflight).length

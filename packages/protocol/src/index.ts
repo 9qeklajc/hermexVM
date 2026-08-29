@@ -749,6 +749,14 @@ export const HERMES_HANDOFF_PREVIEW_TOOL_NAME = "hermes.handoffs.preview";
 export const HERMES_HANDOFF_SEND_TOOL_NAME = "hermes.handoffs.send";
 export const HERMES_HANDOFFS_LIST_TOOL_NAME = "hermes.handoffs.list";
 export const HERMES_HANDOFF_GET_TOOL_NAME = "hermes.handoffs.get";
+/** Add missing client relays to the bridge's durable, hot-reloaded relay set. */
+export const HERMES_RELAYS_ENSURE_TOOL_NAME = "hermes.relays.ensure";
+
+export type HermesRelaysEnsureInput = { relays: string[] };
+export type HermesRelaysEnsureResult = {
+  relays: string[];
+  added: string[];
+};
 
 /** One Hermes profile, presented as a chattable agent ("contact"). */
 export type HermesAgentProfile = {
@@ -899,6 +907,8 @@ export type HermesChatHistoryResult = {
   messages: HermesChatMessage[];
   /** Effective model/provider/project context restored with the conversation. */
   context?: HermesConversationContext;
+  /** Cursor for the next, older history page. Pass it as `beforeOrdinal`. */
+  nextBeforeOrdinal?: number;
   /** True when a turn is running right now (watch it via hermes.chat.watch). */
   running?: boolean;
   /** Snapshot of the in-flight turn, so a reopened chat can render it. */
@@ -909,10 +919,10 @@ export type HermesChatHistoryResult = {
     assistant?: string;
   };
   /**
-   * Present when the transcript did not fit in one ContextVM reply. NIP-44 caps
-   * a message's plaintext at 65535 bytes, and the transport rejects the whole
-   * reply rather than fragmenting it, so an oversized transcript would other-
-   * wise never reach the client at all. The newest messages are kept.
+   * Present when this history page did not fit in one ContextVM reply. NIP-44
+   * caps a message's plaintext at 65535 bytes, and the transport rejects the
+   * whole reply rather than fragmenting it. The newest messages in the requested
+   * range are kept; fetch `nextBeforeOrdinal` to page backward.
    */
   truncated?: {
     /** How many older messages were dropped from the head of the transcript. */

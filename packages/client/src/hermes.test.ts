@@ -46,6 +46,29 @@ describe("HermesChatClient", () => {
     );
   });
 
+  it("asks the connected bridge to ensure client relays", async () => {
+    const result = {
+      relays: ["wss://one.example", "wss://two.example"],
+      added: ["wss://two.example"],
+    };
+    const callTool = vi.fn<FakeCallTool>(async () => ({
+      structuredContent: result,
+    }));
+    const client = clientWithFakeCallTool(callTool);
+
+    await expect(
+      client.ensureBridgeRelays(["wss://two.example"]),
+    ).resolves.toEqual(result);
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: "hermes.relays.ensure",
+        arguments: { relays: ["wss://two.example"] },
+      },
+      undefined,
+      undefined,
+    );
+  });
+
   it("lists chats for one agent and unwraps the items box", async () => {
     const callTool = vi.fn<FakeCallTool>(async () => ({
       structuredContent: {
@@ -64,20 +87,23 @@ describe("HermesChatClient", () => {
     }));
     const client = clientWithFakeCallTool(callTool);
 
-    const chats = await client.listChats("coder", 20);
+    const chats = await client.listChats("coder");
     expect(chats).toHaveLength(1);
     expect(chats[0]).toMatchObject({
       id: "20260725_090000_aaaaaa",
       title: "Fix the build",
     });
     expect(callTool).toHaveBeenCalledWith(
-      { name: "hermes.chats.list", arguments: { agentId: "coder", limit: 20 } },
+      {
+        name: "hermes.chats.list",
+        arguments: { agentId: "coder", limit: 20, offset: 0 },
+      },
       undefined,
       undefined,
     );
   });
 
-  it("reads a transcript", async () => {
+  it("reads a transcript page", async () => {
     const callTool = vi.fn<FakeCallTool>(async () => ({
       structuredContent: {
         agentId: "default",
@@ -90,12 +116,12 @@ describe("HermesChatClient", () => {
     }));
     const client = clientWithFakeCallTool(callTool);
 
-    const history = await client.chatHistory("default", "c1");
+    const history = await client.chatHistory("default", "c1", 12);
     expect(history.messages).toHaveLength(2);
     expect(callTool).toHaveBeenCalledWith(
       {
         name: "hermes.chats.history",
-        arguments: { agentId: "default", chatId: "c1" },
+        arguments: { agentId: "default", chatId: "c1", beforeOrdinal: 12 },
       },
       undefined,
       undefined,

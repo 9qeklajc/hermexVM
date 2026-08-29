@@ -9,6 +9,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type {
+  HermesChatHistoryResult,
+  HermesChatMessage,
   HermesChatTurn,
   HermesModelOptions,
   HermesSendResult,
@@ -82,6 +84,22 @@ const STREAM_RESULT_WAIT_MS = 5_000;
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function mergeHistoryPages(
+  current: HermesChatMessage[],
+  incoming: HermesChatMessage[],
+): HermesChatMessage[] {
+  const byOrdinal = new Map<number, HermesChatMessage>();
+  for (const message of [...current, ...incoming]) {
+    if (message.ordinal !== undefined) byOrdinal.set(message.ordinal, message);
+  }
+  // Bridge history rows always carry ordinals. Falling back to the incoming
+  // page avoids duplicating legacy rows if an older bridge omitted them.
+  if (byOrdinal.size === 0) return incoming;
+  return [...byOrdinal.values()].sort(
+    (left, right) => left.ordinal! - right.ordinal!,
+  );
+}
 
 export function ChatScreen({
   agentId,
@@ -171,6 +189,52 @@ export function ChatScreen({
   const [attachments, setAttachments] = useState<FileTransferDescriptor[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [visualViewportTop, setVisualViewportTop] = useState(0);
+  const historyMessagesRef = useRef<HermesChatMessage[]>([]);
+  const historyKeyRef = useRef<string | null>(null);
+  const historyCursorRef = useRef<number | undefined>(undefined);
+  const historyLoadingRef = useRef(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const pendingPrependScrollRef = useRef<{
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+
+  useEffect(() => {
+    historyMessagesRef.current = [];
+    historyKeyRef.current = null;
+    historyCursorRef.current = undefined;
+    pendingPrependScrollRef.current = null;
+  }, [agentId, initialChatId]);
+
+  const applyHistory = useCallback(
+    (history: HermesChatHistoryResult, older = false) => {
+      const key = `${agentId}\u0000${history.chatId}`;
+      const sameConversation = historyKeyRef.current === key;
+      const messages = sameConversation
+        ? mergeHistoryPages(historyMessagesRef.current, history.messages)
+        : history.messages;
+      historyKeyRef.current = key;
+      historyMessagesRef.current = messages;
+      if (older || !sameConversation) {
+        historyCursorRef.current = history.nextBeforeOrdinal;
+      }
+
+      setChat((current) => {
+        const settled = fromHistory(messages);
+        if (older) {
+          return {
+            ...settled,
+            running: current?.running ?? false,
+            activity: current?.activity ?? null,
+          };
+        }
+        return history.running
+          ? withInflightTurn(settled, history.inflight)
+          : settled;
+      });
+    },
+    [agentId],
+  );
 
   // Android WebView may pan its visual viewport to keep the focused composer
   // above the IME. In that state a CSS-fixed header at layout-viewport top:0
@@ -248,7 +312,7 @@ export function ChatScreen({
             const history = await client
               .chatHistory(agentId, chatId)
               .catch(() => null);
-            if (history) setChat(fromHistory(history.messages));
+            if (history) applyHistory(history);
             return;
           }
           // Streamed the turn through to its terminal frame — settle from
@@ -257,7 +321,7 @@ export function ChatScreen({
             const history = await client
               .chatHistory(agentId, chatId)
               .catch(() => null);
-            if (history) setChat(fromHistory(history.messages));
+            if (history) applyHistory(history);
             return;
           }
           // Interrupted, stalled, or errored — the turn may still be running
@@ -269,13 +333,8 @@ export function ChatScreen({
             await sleep(3000);
             continue;
           }
-          if (!history.running) {
-            setChat(fromHistory(history.messages));
-            return;
-          }
-          setChat(
-            withInflightTurn(fromHistory(history.messages), history.inflight),
-          );
+          applyHistory(history);
+          if (!history.running) return;
           await sleep(3000);
         }
       } finally {
@@ -290,7 +349,7 @@ export function ChatScreen({
         }
       }
     },
-    [client, agentId],
+    [client, agentId, applyHistory],
   );
 
   /**
@@ -317,18 +376,9 @@ export function ChatScreen({
           setActiveModel(history.context?.model ?? "");
           setActiveProvider(history.context?.provider ?? "");
           setPinnedCwd(history.context?.cwd ?? null);
-          if (history.running) {
-            if (!watchingRef.current) {
-              setChat(
-                withInflightTurn(
-                  fromHistory(history.messages),
-                  history.inflight,
-                ),
-              );
-              void attachLive(chatId);
-            }
-          } else {
-            setChat(fromHistory(history.messages));
+          applyHistory(history);
+          if (history.running && !watchingRef.current) {
+            void attachLive(chatId);
           }
           return;
         } catch (cause) {
@@ -346,7 +396,7 @@ export function ChatScreen({
         }
       }
     },
-    [client, agentId, attachLive],
+    [client, agentId, applyHistory, attachLive],
   );
 
   // The store hot-swaps clients on background→foreground reconnects. Any
@@ -463,9 +513,9 @@ export function ChatScreen({
     );
     client
       .chatHistory(agentId, completed.chatId)
-      .then((history) => setChat(fromHistory(history.messages)))
+      .then((history) => applyHistory(history))
       .catch(() => undefined);
-  }, [activity.lastCompleted, agentId, client]);
+  }, [activity.lastCompleted, agentId, applyHistory, client]);
 
   // Last-resort heartbeat: while the chat is believed running but NEITHER a
   // local send stream NOR a watch loop is live (both died, or their recovery
@@ -490,6 +540,54 @@ export function ChatScreen({
     followBottomRef.current = true;
     lastScrollTopRef.current = 0;
   }, [agentId, initialChatId]);
+
+  const loadOlder = useCallback(async () => {
+    const chatId = chatIdRef.current;
+    const beforeOrdinal = historyCursorRef.current;
+    if (
+      !chatId ||
+      beforeOrdinal === undefined ||
+      historyLoadingRef.current ||
+      runningRef.current ||
+      watchingRef.current
+    ) {
+      return;
+    }
+    const el = scrollRef.current;
+    if (!el) return;
+
+    historyLoadingRef.current = true;
+    setLoadingOlder(true);
+    followBottomRef.current = false;
+    pendingPrependScrollRef.current = {
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    };
+    try {
+      const history = await client.chatHistory(agentId, chatId, beforeOrdinal);
+      setLoadError(null);
+      applyHistory(history, true);
+    } catch (cause) {
+      pendingPrependScrollRef.current = null;
+      if (!isTransientTransportError(cause)) {
+        setLoadError(cause instanceof Error ? cause.message : String(cause));
+      }
+    } finally {
+      historyLoadingRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [agentId, applyHistory, client]);
+
+  // Prepending an older page increases scrollHeight. Offset scrollTop by the
+  // same delta so the message the user was reading stays under their finger.
+  useLayoutEffect(() => {
+    const pending = pendingPrependScrollRef.current;
+    const el = scrollRef.current;
+    if (!pending || !el) return;
+    pendingPrependScrollRef.current = null;
+    el.scrollTop = pending.scrollTop + (el.scrollHeight - pending.scrollHeight);
+    lastScrollTopRef.current = el.scrollTop;
+  }, [chat?.items]);
 
   // Follow streamed frames only while the user remains near the bottom. Once
   // they scroll up, preserve that reading position until they return.
@@ -1011,9 +1109,13 @@ export function ChatScreen({
                 el,
               );
               lastScrollTopRef.current = el.scrollTop;
+              if (el.scrollTop <= 40) void loadOlder();
             }}
           >
             <div className="chat-items">
+              {loadingOlder ? (
+                <div className="pagination-status">Loading older…</div>
+              ) : null}
               {chat.items.map((item) => (
                 <ChatRow
                   key={item.id}
