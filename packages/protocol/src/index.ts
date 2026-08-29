@@ -1270,6 +1270,10 @@ export type HermesSkill = {
 export type HermesSkillsResult = {
   agentId: string;
   skills: HermesSkill[];
+  /** Offset to request next; absent when this is the final page. */
+  nextOffset?: number;
+  /** Total installed skills before pagination. */
+  totalSkills?: number;
 };
 
 // ---------------------------------------------------------------------------

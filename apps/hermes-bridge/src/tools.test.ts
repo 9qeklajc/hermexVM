@@ -9,6 +9,7 @@ import {
   fitHistory,
   gatewaySessionCreateParams,
   mapGatewayEvent,
+  paginateSkills,
 } from "./tools.js";
 import { listHermesAgents, profileParam } from "./profiles.js";
 
@@ -55,6 +56,27 @@ describe("gatewaySessionCreateParams", () => {
       profile: undefined,
       cols: 100,
       source: "contextvm",
+    });
+  });
+});
+
+describe("paginateSkills", () => {
+  it("returns a bounded page and a cursor until the final page", () => {
+    const skills = Array.from({ length: 5 }, (_, index) => ({
+      name: `skill-${index}`,
+      description: "description",
+      category: "test",
+      path: `skill-${index}/SKILL.md`,
+    }));
+
+    expect(paginateSkills(skills, 1, 2)).toEqual({
+      skills: skills.slice(1, 3),
+      nextOffset: 3,
+      totalSkills: 5,
+    });
+    expect(paginateSkills(skills, 3, 2)).toEqual({
+      skills: skills.slice(3),
+      totalSkills: 5,
     });
   });
 });

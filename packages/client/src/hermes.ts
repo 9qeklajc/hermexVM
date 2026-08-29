@@ -516,10 +516,28 @@ export class HermesChatClient {
    * category — scanned from the profile's skills/ directory. Use to render a
    * picker so the user can see what the agent can do and ask targeted questions.
    */
-  listSkills(agentId: string): Promise<HermesSkillsResult> {
-    return this.call<HermesSkillsResult>(HERMES_SKILLS_LIST_TOOL_NAME, {
-      agentId,
-    });
+  async listSkills(agentId: string): Promise<HermesSkillsResult> {
+    const skills: HermesSkillsResult["skills"] = [];
+    let offset = 0;
+    for (let page = 0; page < 100; page++) {
+      const result = await this.call<HermesSkillsResult>(
+        HERMES_SKILLS_LIST_TOOL_NAME,
+        { agentId, offset, limit: 40 },
+      );
+      skills.push(...(result.skills ?? []));
+      if (result.nextOffset === undefined) {
+        return {
+          agentId,
+          skills,
+          totalSkills: result.totalSkills ?? skills.length,
+        };
+      }
+      if (result.nextOffset <= offset) {
+        throw new Error("Hermes skills pagination did not advance");
+      }
+      offset = result.nextOffset;
+    }
+    throw new Error("Hermes skills pagination exceeded 100 pages");
   }
 
   // -- voice transcription (local whisper.cpp on the bridge) -----------------

@@ -102,6 +102,70 @@ describe("HermesChatClient", () => {
     );
   });
 
+  it("loads the complete skills catalog in bounded pages", async () => {
+    const calls: ToolCallParams[] = [];
+    const callTool = vi.fn<FakeCallTool>(async (params) => {
+      calls.push(params);
+      const offset = Number(params.arguments.offset ?? 0);
+      if (offset === 0) {
+        return {
+          structuredContent: {
+            agentId: "default",
+            skills: [
+              {
+                name: "one",
+                description: "One",
+                category: "test",
+                path: "one/SKILL.md",
+              },
+              {
+                name: "two",
+                description: "Two",
+                category: "test",
+                path: "two/SKILL.md",
+              },
+            ],
+            nextOffset: 2,
+            totalSkills: 3,
+          },
+        };
+      }
+      return {
+        structuredContent: {
+          agentId: "default",
+          skills: [
+            {
+              name: "three",
+              description: "Three",
+              category: "test",
+              path: "three/SKILL.md",
+            },
+          ],
+          totalSkills: 3,
+        },
+      };
+    });
+    const client = clientWithFakeCallTool(callTool);
+
+    const result = await client.listSkills("default");
+
+    expect(result.skills.map((skill) => skill.name)).toEqual([
+      "one",
+      "two",
+      "three",
+    ]);
+    expect(calls).toEqual([
+      {
+        name: "hermes.skills.list",
+        arguments: { agentId: "default", offset: 0, limit: 40 },
+      },
+      {
+        name: "hermes.skills.list",
+        arguments: { agentId: "default", offset: 2, limit: 40 },
+      },
+    ]);
+  });
+
   it("previews and lists durable cross-agent handoffs", async () => {
     const calls: ToolCallParams[] = [];
     const callTool = vi.fn<FakeCallTool>(async (params) => {

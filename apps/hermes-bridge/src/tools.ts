@@ -48,6 +48,7 @@ import {
   type HermesProjectsResult,
   type HermesSetCwdResult,
   type HermesSetTitleResult,
+  type HermesSkill,
   type HermesSkillsResult,
 } from "@contexcgi/protocol";
 import type { GatewayEventFrame, HermesGateway } from "./gateway.js";
@@ -302,6 +303,21 @@ function mapTranscript(
     });
   }
   return mapped;
+}
+
+/** Keep catalog replies well below ContextVM's encrypted-message ceiling. */
+export function paginateSkills(
+  skills: HermesSkill[],
+  offset: number,
+  limit: number,
+): Pick<HermesSkillsResult, "skills" | "nextOffset" | "totalSkills"> {
+  const page = skills.slice(offset, offset + limit);
+  const nextOffset = offset + page.length;
+  return {
+    skills: page,
+    ...(nextOffset < skills.length ? { nextOffset } : {}),
+    totalSkills: skills.length,
+  };
 }
 
 /**
@@ -2025,14 +2041,15 @@ export function registerHermesTools(
     {
       title: "List the agent's installed skills",
       description:
-        "Lists every skill installed for a Hermes profile — name, description, and category — " +
-        "scanned directly from the profile's skills/ directory. Lets the user see what the agent " +
-        "can do and ask targeted questions instead of guessing.",
+        "Lists one bounded page of skills installed for a Hermes profile — name, description, and category — " +
+        "scanned directly from the profile's skills/ directory. Use nextOffset to request the next page.",
       inputSchema: {
         agentId: z.string().min(1),
+        offset: z.number().int().nonnegative().optional(),
+        limit: z.number().int().positive().max(50).optional(),
       },
     },
-    async ({ agentId }): Promise<CallToolResult> => {
+    async ({ agentId, offset = 0, limit = 40 }): Promise<CallToolResult> => {
       const missing = requireAgent(agentId);
       if (missing) return missing;
       // Resolve the profile home: default → hermesHome, named → profiles/<id>.
@@ -2041,8 +2058,14 @@ export function registerHermesTools(
           ? config.hermesHome
           : join(config.hermesHome, "profiles", agentId);
       const skills = listProfileSkills(home);
-      const result: HermesSkillsResult = { agentId, skills };
-      return ok(result, `skills ${skills.length}`);
+      const result: HermesSkillsResult = {
+        agentId,
+        ...paginateSkills(skills, offset, limit),
+      };
+      return ok(
+        result,
+        `skills ${offset}-${offset + result.skills.length}/${skills.length}`,
+      );
     },
   );
 
