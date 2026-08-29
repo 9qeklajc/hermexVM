@@ -22,7 +22,7 @@ process.on("uncaughtException", (error) => {
 
 async function main(): Promise<void> {
   const config = loadBridgeRuntimeConfig();
-  const { relays, hermesHome, agentRoot, dataRoot, fileTransferRoot } = config;
+  const { hermesHome, agentRoot, dataRoot, fileTransferRoot } = config;
 
   if (!existsSync(join(agentRoot, "tui_gateway"))) {
     console.error(
@@ -42,7 +42,7 @@ async function main(): Promise<void> {
   console.log("  Hermes bridge ONLINE");
   console.log(`  pubkey (hex):  ${bridge.publicKey}`);
   console.log(`  pubkey (npub): ${npubEncode(bridge.publicKey)}`);
-  console.log(`  relays:        ${relays.join(", ")}`);
+  console.log(`  relays:        ${bridge.relays.join(", ")}`);
   console.log(`  hermes home:   ${hermesHome}`);
   console.log(`  agent root:    ${agentRoot}`);
   console.log(`  data root:     ${dataRoot}`);

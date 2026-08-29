@@ -1358,9 +1358,14 @@ body {
 
 .bridge-profile-relay {
   grid-column: 1;
-  overflow: hidden;
+  min-width: 0;
   color: var(--muted-foreground);
   font-size: 12px;
+}
+
+.bridge-profile-relay-item {
+  display: block;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

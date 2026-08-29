@@ -31,6 +31,8 @@ export function SettingsScreen() {
   const [relays, setRelays] = useState(config?.relays.join("\n") ?? "");
   const [revealed, setRevealed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newServerPubkey, setNewServerPubkey] = useState("");
@@ -60,21 +62,34 @@ export function SettingsScreen() {
     }
   };
 
-  const saveBridge = () => {
+  const saveBridge = async () => {
     if (
       !name.trim() ||
       !serverPubkey.trim() ||
       !canonicalNsec ||
-      !relaysValid
+      !relaysValid ||
+      saving
     ) {
       return;
     }
-    updateBridge(activeBridgeId, name, {
-      privateKey: canonicalNsec,
-      serverPubkey: serverPubkey.trim(),
-      relays: parsedRelays,
-    });
-    nav.pop();
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await updateBridge(activeBridgeId, name, {
+        privateKey: canonicalNsec,
+        serverPubkey: serverPubkey.trim(),
+        relays: parsedRelays,
+      });
+      nav.pop();
+    } catch (cause) {
+      setSaveError(
+        cause instanceof Error
+          ? cause.message
+          : "Couldn't update the bridge relay list.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const createBridge = () => {
@@ -126,7 +141,11 @@ export function SettingsScreen() {
                   >
                     <span className="bridge-profile-name">{profile.name}</span>
                     <span className="bridge-profile-relay">
-                      {profile.config.relays[0]?.replace(/^wss?:\/\//, "")}
+                      {profile.config.relays.map((relay) => (
+                        <span className="bridge-profile-relay-item" key={relay}>
+                          {relay.replace(/^wss?:\/\//, "")}
+                        </span>
+                      ))}
                     </span>
                     <span className="bridge-profile-status">
                       {active ? "Connected" : "Switch bridge"}
@@ -306,15 +325,21 @@ export function SettingsScreen() {
             type="button"
             className="button primary"
             disabled={
+              saving ||
               !name.trim() ||
               !serverPubkey.trim() ||
               !canonicalNsec ||
               !relaysValid
             }
-            onClick={saveBridge}
+            onClick={() => void saveBridge()}
           >
-            Save bridge and reconnect
+            {saving ? "Updating bridge relays…" : "Save bridge and reconnect"}
           </button>
+          {saveError ? (
+            <div className="form-error" role="alert">
+              {saveError}
+            </div>
+          ) : null}
         </section>
 
         {notice ? (

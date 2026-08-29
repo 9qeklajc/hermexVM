@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ResilientRelayPool } from "./index.js";
 
 type TestPool = {
+  relayUrls: string[];
   relays: Array<{ url: string; connected: boolean }>;
   subscriptions: Map<string, unknown>;
   rebuildInFlight?: Promise<void>;
   rebuild: (reason: string) => void;
   checkDegraded: () => void;
+  ensureRelayUrls: (relays: string[]) => Promise<string[]>;
 };
 
 const URLS = ["wss://a.example", "wss://b.example", "wss://c.example"];
@@ -41,6 +43,22 @@ describe("ResilientRelayPool watchdog", () => {
     const { pool, rebuild } = makePool();
     for (let i = 0; i < 10; i++) pool.checkDegraded();
     expect(rebuild).not.toHaveBeenCalled();
+  });
+
+  it("hot-adds only missing relays and rebuilds once", async () => {
+    const { pool, rebuild } = makePool();
+
+    await expect(
+      pool.ensureRelayUrls([URLS[0]!, "wss://new.example"]),
+    ).resolves.toEqual(["wss://new.example"]);
+    expect(pool.relayUrls).toEqual([...URLS, "wss://new.example"]);
+    expect(rebuild).toHaveBeenCalledOnce();
+    expect(rebuild).toHaveBeenCalledWith("relay-list-updated");
+
+    await expect(pool.ensureRelayUrls(["wss://new.example"])).resolves.toEqual(
+      [],
+    );
+    expect(rebuild).toHaveBeenCalledOnce();
   });
 
   it("rebuilds after sustained partial disconnection", () => {

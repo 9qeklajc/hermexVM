@@ -12,6 +12,8 @@ describe("settings bridge manager", () => {
     expect(settingsSource).toContain("Switch bridge");
     expect(settingsSource).toContain("switchBridge(profile.id)");
     expect(settingsSource).toContain("profile.name");
+    expect(settingsSource).toContain("profile.config.relays.map");
+    expect(settingsSource).toContain("bridge-profile-relay-item");
   });
 
   it("supports adding, renaming, and removing bridge profiles", () => {
@@ -21,9 +23,12 @@ describe("settings bridge manager", () => {
     expect(settingsSource).toContain("deleteBridge(profile.id)");
   });
 
-  it("persists valid relay changes and reconnects without changing identity", () => {
+  it("hot-adds valid relays on the bridge before saving and reconnecting", () => {
     expect(settingsSource).toContain("Enter one relay URL per line.");
     expect(settingsSource).toContain("Save bridge and reconnect");
     expect(settingsSource).toContain("parsedRelays.every(isValidRelayUrl)");
+    expect(settingsSource).toContain("await updateBridge");
+    expect(settingsSource).toContain("Updating bridge relays…");
+    expect(settingsSource).toContain("setSaveError");
   });
 });

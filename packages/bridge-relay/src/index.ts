@@ -24,6 +24,7 @@ const HEARTBEAT_EVERY_N_CHECKS = 30;
 /** The private SDK internals the watchdog reads. Kept to the minimum and
  * accessed defensively so an SDK upgrade degrades to a no-op, not a crash. */
 type PoolInternals = {
+  relayUrls?: string[];
   relays?: Array<{ url?: string; connected?: boolean }>;
   subscriptions?: Map<unknown, unknown>;
   rebuildInFlight?: Promise<void>;
@@ -38,7 +39,7 @@ export class ResilientRelayPool extends ApplesauceRelayPool {
   private warnedInternalsMismatch = false;
 
   constructor(relayUrls: string[], opts?: ApplesauceRelayPoolOptions) {
-    super(relayUrls, opts);
+    super([...relayUrls], opts);
     this.watchdogTimer = setInterval(
       () => this.checkDegraded(),
       DEGRADED_CHECK_INTERVAL_MS,
@@ -52,6 +53,25 @@ export class ResilientRelayPool extends ApplesauceRelayPool {
       this.watchdogTimer = undefined;
     }
     await super.disconnect();
+  }
+
+  /**
+   * Append missing relay URLs and rebuild the live SDK pool so existing
+   * subscriptions are replayed without restarting the bridge process.
+   */
+  async ensureRelayUrls(relayUrls: string[]): Promise<string[]> {
+    const pool = this.internals();
+    if (!pool?.relayUrls || typeof pool.rebuild !== "function") {
+      throw new Error("Relay pool does not support hot relay updates");
+    }
+    const existing = new Set(pool.relayUrls);
+    const added = relayUrls.filter((url) => !existing.has(url));
+    if (!added.length) return [];
+
+    pool.relayUrls.push(...added);
+    pool.rebuild("relay-list-updated");
+    await pool.rebuildInFlight;
+    return added;
   }
 
   private internals(): PoolInternals | undefined {

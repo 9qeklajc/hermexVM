@@ -86,7 +86,11 @@ interface ConnectionState {
   error: string | null;
   connect: (config: HermesConfig, name?: string) => void;
   addBridge: (name: string, config: HermesConfig) => void;
-  updateBridge: (id: string, name: string, config: HermesConfig) => void;
+  updateBridge: (
+    id: string,
+    name: string,
+    config: HermesConfig,
+  ) => Promise<void>;
   switchBridge: (id: string) => void;
   deleteBridge: (id: string) => void;
   reconnect: () => void;
@@ -651,8 +655,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateBridge = useCallback(
-    (id: string, name: string, next: HermesConfig) => {
-      if (!connections) return;
+    async (id: string, name: string, next: HermesConfig) => {
+      if (!connections) throw new Error("No bridge profile is loaded");
+      const current = connections.profiles.find((profile) => profile.id === id);
+      if (!current) throw new Error("Bridge profile was not found");
+
+      const relaysChanged =
+        current.config.relays.length !== next.relays.length ||
+        current.config.relays.some(
+          (relay, index) => relay !== next.relays[index],
+        );
+      const sameBridgeIdentity =
+        current.config.privateKey === next.privateKey &&
+        current.config.serverPubkey === next.serverPubkey;
+      if (id === connections.activeId && relaysChanged && sameBridgeIdentity) {
+        const activeClient = clientRef.current;
+        if (!activeClient) {
+          throw new Error(
+            "Connect to the bridge before changing its relay list.",
+          );
+        }
+        await activeClient.ensureBridgeRelays(next.relays);
+      }
+
       persistConnections(updateBridgeProfile(connections, id, name, next));
     },
     [connections, persistConnections],

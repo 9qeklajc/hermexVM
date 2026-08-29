@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { requireAllowedPublicKeys } from "@contexcgi/bridge-auth";
 import {
@@ -19,6 +20,12 @@ import {
 } from "./transcription.js";
 import { ChunkedUploadBuffer } from "./upload-buffer.js";
 import { HandoffStore } from "./handoff-store.js";
+import {
+  RelayConfiguration,
+  loadPersistedRelays,
+  mergeRelayUrls,
+} from "./relay-config.js";
+import { registerRelayTools } from "./relay-tools.js";
 import {
   FileTransferRegistry,
   registerFileTransferTools,
@@ -51,6 +58,7 @@ export async function startHermesBridge(config: HermesBridgeConfig): Promise<{
   transport: NostrServerTransport;
   gateway: HermesGateway;
   publicKey: string;
+  relays: string[];
   transcription: WhisperTranscriptionService;
   close(): Promise<void>;
 }> {
@@ -68,10 +76,16 @@ export async function startHermesBridge(config: HermesBridgeConfig): Promise<{
     config.transcription ?? { enabled: false },
   );
   const uploadBuffer = new ChunkedUploadBuffer();
-  const handoffStore = new HandoffStore(
-    config.dataRoot ?? `${config.hermesHome}/../.hermes-bridge/data`,
-  );
+  const dataRoot =
+    config.dataRoot ?? `${config.hermesHome}/../.hermes-bridge/data`;
+  const handoffStore = new HandoffStore(dataRoot);
   await handoffStore.recoverStartup();
+  const relayConfigPath = join(dataRoot, "relays.json");
+  const relays = mergeRelayUrls(
+    config.relays,
+    await loadPersistedRelays(relayConfigPath),
+  );
+  const relayPool = new ResilientRelayPool(relays);
   // File transfer registry is created up front when a root is configured so
   // the Hermes voice tools can transcribe recordings uploaded through the
   // resumable contexcgi.fileTransfer.* tools.
@@ -84,6 +98,10 @@ export async function startHermesBridge(config: HermesBridgeConfig): Promise<{
     { hermesHome: config.hermesHome, handoffStore, fileTransferRegistry },
     transcription,
     uploadBuffer,
+  );
+  registerRelayTools(
+    server,
+    new RelayConfiguration(relayPool, relayConfigPath),
   );
 
   // Register file transfer tools (upload/download/list/delete) so the app
@@ -112,13 +130,13 @@ export async function startHermesBridge(config: HermesBridgeConfig): Promise<{
     // Use the SDK default liveness ping (120s) so the pool detects and
     // rebuilds stale/dead websocket connections. A ~never ping leaves zombie
     // sockets that silently drop tool calls after ~12h.
-    relayHandler: new ResilientRelayPool(config.relays),
+    relayHandler: relayPool,
     encryptionMode: config.requireEncryption
       ? EncryptionMode.REQUIRED
       : EncryptionMode.OPTIONAL,
     isAnnouncedServer: config.public ?? false,
     publishRelayList: config.public ?? false,
-    relayListUrls: config.relays,
+    relayListUrls: relays,
     allowedPublicKeys,
     serverInfo: {
       name: "Hermes Bridge",
@@ -147,6 +165,7 @@ export async function startHermesBridge(config: HermesBridgeConfig): Promise<{
     transport,
     gateway,
     publicKey,
+    relays,
     transcription,
     close: async () => {
       await server.close();
