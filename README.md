@@ -107,6 +107,8 @@ The bridge whitelist needs the app's public identity before it will accept that 
 3. Copy **Client npub to whitelist**.
 4. Keep the client secret on the device. Do not copy it into `.env`.
 
+An `npub` cannot be converted back into its matching `nsec`. To import an existing client identity, paste the original `nsec` or 64-character secret hex into **Client secret key** and confirm that **Client npub to whitelist** shows the expected `npub`. If the original secret is unavailable, tap **Generate** and whitelist the newly displayed `npub`; do not generate a different secret while keeping the old `npub` in the bridge allowlist.
+
 Tap **Generate** to rotate the client identity. If the connection is misconfigured, use **Edit connection settings** on the recovery screen.
 
 ## 4. Configure the mandatory client whitelist
