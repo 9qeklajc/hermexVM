@@ -199,6 +199,22 @@ describe("chat stream reducer", () => {
     ]);
   });
 
+  it("hides Hermes auto-continue recovery notes from authoritative history", () => {
+    const state = fromHistory([
+      { role: "user", text: "Still getting the transcription error" },
+      {
+        role: "user",
+        text: "[System note: Your previous turn was interrupted mid-run — the app stopped.]\n\nStill getting the transcription error",
+      },
+      { role: "assistant", text: "Recovered response" },
+    ]);
+
+    expect(state.items).toMatchObject([
+      { kind: "user", text: "Still getting the transcription error" },
+      { kind: "assistant", text: "Recovered response" },
+    ]);
+  });
+
   it("ignores keepalives", () => {
     const before = withUserMessage(emptyChat(), "hi");
     expect(applyEvent(before, { type: "keepalive", ts: 1 })).toBe(before);
@@ -286,6 +302,23 @@ describe("withInflightTurn", () => {
     const state = withInflightTurn(base, { user: "same q" });
     expect(state.items.filter((item) => item.kind === "user")).toHaveLength(1);
     expect(state.activity).toBe("working…");
+  });
+
+  it("does not render an in-flight auto-continue note as a user message", () => {
+    const base = fromHistory([{ role: "user", text: "original prompt" }]);
+    const state = withInflightTurn(base, {
+      user: "[System note: Your previous turn was interrupted mid-run — recovering.]\n\noriginal prompt",
+      assistant: "partial recovery",
+    });
+
+    expect(state.items.filter((item) => item.kind === "user")).toMatchObject([
+      { text: "original prompt" },
+    ]);
+    expect(state.items.at(-1)).toMatchObject({
+      kind: "assistant",
+      text: "partial recovery",
+      streaming: true,
+    });
   });
 });
 

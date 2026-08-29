@@ -17,7 +17,10 @@ import {
   FILE_TRANSFER_UPLOAD_INIT_TOOL_NAME,
   FILE_TRANSFER_UPLOAD_STATUS_TOOL_NAME,
 } from "@contexcgi/protocol";
-import { FileTransferRegistry } from "./file-transfer-registry.js";
+import {
+  DEFAULT_CHUNK_BYTES,
+  FileTransferRegistry,
+} from "./file-transfer-registry.js";
 import { registerFileTransferTools } from "./file-transfer-tools.js";
 
 type ToolHandler = (
@@ -28,6 +31,29 @@ type ToolHandler = (
 function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
+
+describe("file-transfer chunk framing", () => {
+  it("keeps one upload chunk request within the proven legacy-safe frame size", () => {
+    const contentBase64 = Buffer.alloc(DEFAULT_CHUNK_BYTES).toString("base64");
+    const request = JSON.stringify({
+      method: "tools/call",
+      params: {
+        name: FILE_TRANSFER_UPLOAD_CHUNK_TOOL_NAME,
+        arguments: {
+          uploadId: "0".repeat(36),
+          index: 0,
+          totalChunks: 1,
+          contentBase64,
+        },
+      },
+    });
+
+    // The legacy voice uploader has reliably used 24,000-character tool calls.
+    // @contextvm/sdk 0.11.x encrypts the complete request before deciding to
+    // fragment it, so the larger nominal CEP-22 threshold is not safe here.
+    expect(Buffer.byteLength(request, "utf8")).toBeLessThanOrEqual(24_000);
+  });
+});
 
 describe("registerFileTransferTools", () => {
   it("registers list, get, download, stream, and range tools", async () => {
