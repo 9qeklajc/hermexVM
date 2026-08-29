@@ -17,6 +17,7 @@ function randomHexKey(): string {
 
 export function ConnectScreen() {
   const { connect, status, error, config } = useConnectionState();
+  const [bridgeName, setBridgeName] = useState("My bridge");
   const [relays, setRelays] = useState(
     config?.relays?.length
       ? config.relays.join(", ")
@@ -48,7 +49,7 @@ export function ConnectScreen() {
       relays: parseRelays(relays),
     };
     setPrivateKey(next.privateKey);
-    connect(next);
+    connect(next, bridgeName);
   };
 
   return (
@@ -61,6 +62,15 @@ export function ConnectScreen() {
         <p>Message your Hermes agents over ContextVM — no Telegram required.</p>
       </div>
       <div className="connect-form">
+        <label>
+          <span>Bridge name</span>
+          <input
+            type="text"
+            placeholder="Home, Work, Server…"
+            value={bridgeName}
+            onChange={(event) => setBridgeName(event.target.value)}
+          />
+        </label>
         <label>
           <span>Bridge public key</span>
           <input
@@ -125,6 +135,7 @@ export function ConnectScreen() {
           className="button primary"
           disabled={
             busy ||
+            !bridgeName.trim() ||
             !clientNpub ||
             !serverPubkey.trim() ||
             parseRelays(relays).length === 0

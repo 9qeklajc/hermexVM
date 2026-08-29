@@ -1234,9 +1234,12 @@ body {
   gap: 8px;
 }
 
-.identity-input-row input {
+.identity-input-row input,
+.identity-field > input,
+.bridge-add-form input,
+.bridge-add-form textarea {
   min-width: 0;
-  flex: 1;
+  width: 100%;
   border: 1px solid var(--input-border);
   border-radius: 10px;
   background: var(--background);
@@ -1246,7 +1249,14 @@ body {
   outline: none;
 }
 
-.identity-input-row input:focus {
+.identity-input-row input {
+  flex: 1;
+}
+
+.identity-input-row input:focus,
+.identity-field > input:focus,
+.bridge-add-form input:focus,
+.bridge-add-form textarea:focus {
   border-color: var(--gold);
 }
 
@@ -1277,6 +1287,116 @@ body {
 
 .identity-copy-secret {
   align-self: flex-start;
+}
+
+.settings-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-heading-row > div {
+  min-width: 0;
+}
+
+.bridge-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bridge-profile {
+  display: flex;
+  align-items: stretch;
+  min-height: 64px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+
+.bridge-profile.active {
+  border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  background: var(--gold-soft);
+}
+
+.bridge-profile-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  flex: 1;
+  min-width: 0;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bridge-profile-main:disabled {
+  cursor: default;
+}
+
+.bridge-profile-name {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bridge-profile-relay {
+  grid-column: 1;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bridge-profile-status {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bridge-profile-delete {
+  min-width: 62px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--red);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bridge-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.bridge-add-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.bridge-add-form textarea {
+  min-height: 84px;
+  resize: vertical;
 }
 
 .settings-notice {

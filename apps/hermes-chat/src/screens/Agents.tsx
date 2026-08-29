@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import type { HermesAgentProfile } from "../lib/api";
-import { useActivity, useConnection, useNav } from "../lib/store";
+import {
+  useActivity,
+  useConnection,
+  useConnectionState,
+  useNav,
+} from "../lib/store";
 import { isTransientTransportError } from "../lib/errors";
 import {
   Avatar,
@@ -13,6 +18,7 @@ import {
 
 export function AgentsScreen() {
   const { client } = useConnection();
+  const { activeBridgeName } = useConnectionState();
   const nav = useNav();
   const activity = useActivity();
   const [agents, setAgents] = useState<HermesAgentProfile[] | null>(null);
@@ -40,6 +46,7 @@ export function AgentsScreen() {
     <div className="screen">
       <TopBar
         title="Hermes"
+        subtitle={activeBridgeName ?? undefined}
         leading={
           <div className="topbar-logo">
             <HermesMark size={28} />

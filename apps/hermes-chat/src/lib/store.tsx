@@ -18,6 +18,17 @@ import {
 } from "@contexcgi/client";
 import { displayAgentName } from "./chat";
 import { initNotifications, notificationId, notify } from "./notify";
+import {
+  activeBridgeProfile,
+  addBridgeProfile,
+  createStoredConnections,
+  deleteBridgeProfile,
+  parseStoredConnections,
+  switchBridgeProfile,
+  updateBridgeProfile,
+  type BridgeProfile,
+  type StoredConnections,
+} from "./bridge-profiles";
 
 // ---------------------------------------------------------------------------
 // Navigation — a simple mobile screen stack with Android back support.
@@ -61,6 +72,9 @@ export type ConnectionStatus = "idle" | "connecting" | "connected" | "error";
 
 interface ConnectionState {
   config: HermesConfig | null;
+  bridges: BridgeProfile[];
+  activeBridgeId: string | null;
+  activeBridgeName: string | null;
   client: HermesChatClient | null;
   waitForClient: (options?: {
     timeoutMs?: number;
@@ -70,7 +84,11 @@ interface ConnectionState {
   ready: boolean; // persisted config has been loaded
   status: ConnectionStatus;
   error: string | null;
-  connect: (config: HermesConfig) => void;
+  connect: (config: HermesConfig, name?: string) => void;
+  addBridge: (name: string, config: HermesConfig) => void;
+  updateBridge: (id: string, name: string, config: HermesConfig) => void;
+  switchBridge: (id: string) => void;
+  deleteBridge: (id: string) => void;
   reconnect: () => void;
   disconnect: () => void;
   /**
@@ -107,7 +125,8 @@ export function useConnectionState(): ConnectionState {
 }
 
 // v2 intentionally invalidates the legacy build's shared embedded identity.
-const STORAGE_KEY = "hermexvm.connection.contextvm.v2";
+const STORAGE_KEY = "hermexvm.connections.contextvm.v3";
+const LEGACY_STORAGE_KEY = "hermexvm.connection.contextvm.v2";
 
 /**
  * Two configs point at the same bridge/session when their identity + relays
@@ -120,30 +139,6 @@ function sameConnection(a: HermesConfig, b: HermesConfig): boolean {
   if (a.serverPubkey !== b.serverPubkey) return false;
   if (a.relays.length !== b.relays.length) return false;
   return a.relays.every((r, i) => r === b.relays[i]);
-}
-
-/** Restore only a complete on-device connection. Fresh/corrupt installs go to setup. */
-function restoreStoredConfig(value: string | null): HermesConfig | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as Partial<HermesConfig>;
-    if (
-      typeof parsed.privateKey === "string" &&
-      parsed.privateKey.length > 0 &&
-      typeof parsed.serverPubkey === "string" &&
-      parsed.serverPubkey.length > 0 &&
-      Array.isArray(parsed.relays) &&
-      parsed.relays.length > 0 &&
-      parsed.relays.every(
-        (relay) => typeof relay === "string" && relay.length > 0,
-      )
-    ) {
-      return parsed as HermesConfig;
-    }
-  } catch {
-    // Corrupt preferences must not block first-run setup.
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +207,9 @@ function withRunning(
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const [connections, setConnections] = useState<StoredConnections | null>(
+    null,
+  );
   const [config, setConfig] = useState<HermesConfig | null>(null);
   const [client, setClient] = useState<HermesChatClient | null>(null);
   const [ready, setReady] = useState(false);
@@ -257,9 +255,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Restore a successful on-device connection. Fresh or corrupt installs stay
   // disconnected and show setup, where a unique client identity is generated.
   useEffect(() => {
-    void Preferences.get({ key: STORAGE_KEY })
-      .then(({ value }) => setConfig(restoreStoredConfig(value)))
-      .catch(() => setConfig(null))
+    void Promise.all([
+      Preferences.get({ key: STORAGE_KEY }),
+      Preferences.get({ key: LEGACY_STORAGE_KEY }),
+    ])
+      .then(([current, legacy]) => {
+        const restored =
+          parseStoredConnections(current.value) ??
+          parseStoredConnections(legacy.value);
+        setConnections(restored);
+        setConfig(activeBridgeProfile(restored)?.config ?? null);
+        if (restored && !current.value) {
+          void Preferences.set({
+            key: STORAGE_KEY,
+            value: JSON.stringify(restored),
+          });
+          void Preferences.remove({ key: LEGACY_STORAGE_KEY });
+        }
+      })
+      .catch(() => {
+        setConnections(null);
+        setConfig(null);
+      })
       .finally(() => setReady(true));
   }, []);
 
@@ -596,13 +613,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const connect = useCallback((next: HermesConfig) => {
-    void Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(next) });
-    setConfig(next);
+  const persistConnections = useCallback((next: StoredConnections | null) => {
+    if (next) {
+      void Preferences.set({ key: STORAGE_KEY, value: JSON.stringify(next) });
+    } else {
+      void Preferences.remove({ key: STORAGE_KEY });
+    }
+    setConnections(next);
+    setConfig(activeBridgeProfile(next)?.config ?? null);
   }, []);
+
+  const connect = useCallback(
+    (next: HermesConfig, name?: string) => {
+      const active = activeBridgeProfile(connections);
+      const updated = connections
+        ? updateBridgeProfile(
+            connections,
+            connections.activeId,
+            name?.trim() || active?.name || "My bridge",
+            next,
+          )
+        : createStoredConnections(name?.trim() || "My bridge", next);
+      persistConnections(updated);
+    },
+    [connections, persistConnections],
+  );
+
+  const addBridge = useCallback(
+    (name: string, next: HermesConfig) => {
+      const updated = connections
+        ? addBridgeProfile(connections, name, next)
+        : createStoredConnections(name, next);
+      persistConnections(updated);
+      setStack([{ kind: "agents" }]);
+    },
+    [connections, persistConnections],
+  );
+
+  const updateBridge = useCallback(
+    (id: string, name: string, next: HermesConfig) => {
+      if (!connections) return;
+      persistConnections(updateBridgeProfile(connections, id, name, next));
+    },
+    [connections, persistConnections],
+  );
+
+  const switchBridge = useCallback(
+    (id: string) => {
+      if (!connections || id === connections.activeId) return;
+      persistConnections(switchBridgeProfile(connections, id));
+      setStack([{ kind: "agents" }]);
+    },
+    [connections, persistConnections],
+  );
+
+  const deleteBridge = useCallback(
+    (id: string) => {
+      if (!connections) return;
+      const updated = deleteBridgeProfile(connections, id);
+      persistConnections(updated);
+      setStack([{ kind: updated ? "agents" : "connect" }]);
+    },
+    [connections, persistConnections],
+  );
 
   const disconnect = useCallback(() => {
     void Preferences.remove({ key: STORAGE_KEY });
+    void Preferences.remove({ key: LEGACY_STORAGE_KEY });
+    setConnections(null);
     setConfig(null);
     setStack([{ kind: "connect" }]);
   }, []);
@@ -661,24 +739,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const connection = useMemo(
     () => ({
       config,
+      bridges: connections?.profiles ?? [],
+      activeBridgeId: connections?.activeId ?? null,
+      activeBridgeName: activeBridgeProfile(connections)?.name ?? null,
       client,
       waitForClient,
       ready,
       status,
       error,
       connect,
+      addBridge,
+      updateBridge,
+      switchBridge,
+      deleteBridge,
       reconnect,
       disconnect,
       resumedAt,
     }),
     [
       config,
+      connections,
       client,
       waitForClient,
       ready,
       status,
       error,
       connect,
+      addBridge,
+      updateBridge,
+      switchBridge,
+      deleteBridge,
       reconnect,
       disconnect,
       resumedAt,

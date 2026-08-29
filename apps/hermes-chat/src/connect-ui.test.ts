@@ -8,6 +8,11 @@ const connectSource = readFileSync(
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
 describe("connect screen layout contract", () => {
+  it("collects a custom bridge name for the first saved profile", () => {
+    expect(connectSource).toContain("Bridge name");
+    expect(connectSource).toContain("connect(next, bridgeName)");
+  });
+
   it("wraps the generated client npub instead of overflowing the screen", () => {
     expect(connectSource).toContain(
       'className="connect-hint connect-client-npub"',

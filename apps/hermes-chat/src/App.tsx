@@ -38,8 +38,19 @@ function renderScreen(screen: Screen) {
 
 function Shell() {
   const nav = useNav();
-  const { ready, config, client, status, error, reconnect, disconnect } =
-    useConnectionState();
+  const {
+    ready,
+    config,
+    client,
+    status,
+    error,
+    reconnect,
+    disconnect,
+    bridges,
+    activeBridgeId,
+    activeBridgeName,
+    switchBridge,
+  } = useConnectionState();
   const gate = connectionGate({
     ready,
     hasConfig: Boolean(config),
@@ -58,14 +69,32 @@ function Shell() {
       <div className="app">
         <div className="connect-screen">
           <div className="connect-form">
+            <h2>{activeBridgeName ?? "Bridge"} is offline</h2>
             <div className="form-error" style={{ whiteSpace: "pre-wrap" }}>
               {error ?? "Connection interrupted. Your session is saved."}
             </div>
             <button className="button primary" onClick={reconnect}>
               Retry connection
             </button>
+            {bridges.length > 1 ? (
+              <div className="recovery-bridges">
+                <span>Or switch bridge</span>
+                {bridges
+                  .filter((bridge) => bridge.id !== activeBridgeId)
+                  .map((bridge) => (
+                    <button
+                      type="button"
+                      className="button secondary"
+                      key={bridge.id}
+                      onClick={() => switchBridge(bridge.id)}
+                    >
+                      Connect to {bridge.name}
+                    </button>
+                  ))}
+              </div>
+            ) : null}
             <button className="button secondary" onClick={disconnect}>
-              Edit connection settings
+              Remove saved bridges
             </button>
           </div>
         </div>
