@@ -1,15 +1,18 @@
-# Nostr announcement
+**Bridge**
 
-**Introducing Bridge.**
+A simple idea: keep everything local, but make it accessible from anywhere through open infrastructure.
 
-A simple idea: keep your AI agent local, but make it accessible from anywhere through open infrastructure.
+CEP-22 and CEP-41 forced me to start playing with @ContextVM.
 
-**hermexVM** is the first implementation:
+So I tested with something I work with everyday, my hermes agent. An experiment that I Think it was worth every sats paid to build it.
+
+Sending media files over contextVM is probably not what it is intented for, but yeah I dont care :D
+
+**hermexVM**:
 
 Hermes on your machine.  
-Routstr for open model routing.  
-ContextVM over Nostr for the encrypted connection.  
-A clean Android and web interface in your hand.
+@Routstr for open model routing.  
+@contextVM over Nostr for the encrypted connection.
 
 ### What you can do in a conversation
 
@@ -31,16 +34,8 @@ A clean Android and web interface in your hand.
 - Project selection and project creation.
 - Searchable Hermes skill picker, grouped by category.
 - Linked conversation and agent-handoff history.
-- Native Android and web notifications when work completes.
 - Automatic upload retry and recovery from temporary relay failures.
-- A unique Nostr identity generated for every device.
 - Explicit client allowlisting at the bridge.
-- Encrypted ContextVM communication over Nostr relays.
-- No shared client secret and no centralized application backend.
 - Android and web support—the web client can also be built and published as a Nostr nsite.
-
-Your agent stays yours. Your conversations stay connected. Your models stay open.
-
-Not another chatbot—**a bridge between local intelligence and the open network.**
 
 #Bridge #hermexVM #Hermes #Routstr #ContextVM #Nostr
