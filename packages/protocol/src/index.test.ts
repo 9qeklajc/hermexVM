@@ -18,6 +18,8 @@ import {
   HERMES_HANDOFF_SEND_TOOL_NAME,
   HERMES_HANDOFFS_LIST_TOOL_NAME,
   MAX_BATCHED_TEXT_BYTES,
+  isHermesAutoContinueNote,
+  isVisibleHermesHandoffMessage,
   parseHermesChatChunk,
   type HermesTranscribeAudioRequest,
   parseStreamChunk,
@@ -31,6 +33,36 @@ import {
   PAPERCLIP_TRANSCRIPTION_CHUNK_TOOL_NAME,
   type PaperclipTranscribeAudioResult,
 } from "./index.js";
+
+describe("Hermes recovery notes", () => {
+  it("identifies only the synthetic interrupted-turn prefix", () => {
+    expect(
+      isHermesAutoContinueNote(
+        "  [System note: Your previous turn was interrupted mid-run — recovering.]",
+      ),
+    ).toBe(true);
+    expect(isHermesAutoContinueNote("A normal user message")).toBe(false);
+    expect(isHermesAutoContinueNote(undefined)).toBe(false);
+  });
+
+  it("excludes recovery plumbing from visible handoff rows", () => {
+    expect(
+      isVisibleHermesHandoffMessage({
+        role: "user",
+        text: "[System note: Your previous turn was interrupted mid-run — recovering.]",
+      }),
+    ).toBe(false);
+    expect(
+      isVisibleHermesHandoffMessage({ role: "user", text: "Question" }),
+    ).toBe(true);
+    expect(
+      isVisibleHermesHandoffMessage({ role: "assistant", text: "Answer" }),
+    ).toBe(true);
+    expect(
+      isVisibleHermesHandoffMessage({ role: "system", text: "internal" }),
+    ).toBe(false);
+  });
+});
 
 describe("protocol stream codec", () => {
   it("round-trips JSONL conversation stream events", () => {

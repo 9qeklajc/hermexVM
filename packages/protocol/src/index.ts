@@ -795,6 +795,25 @@ export type HermesChatMessage = {
   truncated?: boolean;
 };
 
+const HERMES_AUTO_CONTINUE_NOTE_PREFIX =
+  "[System note: Your previous turn was interrupted mid-run";
+
+/** Hermes-internal recovery plumbing, never a user-authored visible message. */
+export function isHermesAutoContinueNote(text: string | undefined): boolean {
+  return Boolean(
+    text?.trimStart().startsWith(HERMES_AUTO_CONTINUE_NOTE_PREFIX),
+  );
+}
+
+export function isVisibleHermesHandoffMessage(
+  message: HermesChatMessage,
+): message is HermesChatMessage & { role: "user" | "assistant" } {
+  return (
+    (message.role === "user" || message.role === "assistant") &&
+    !(message.role === "user" && isHermesAutoContinueNote(message.text))
+  );
+}
+
 export type HermesConversationContext = {
   /** The model currently active for this conversation. */
   model?: string;

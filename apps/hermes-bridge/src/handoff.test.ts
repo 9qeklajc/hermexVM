@@ -61,6 +61,22 @@ describe("handoff preview", () => {
     expect(preview.byteCount).toBeGreaterThan(preview.envelope.length);
   });
 
+  it("excludes synthetic auto-continue notes from full handoffs", () => {
+    const recoveryNote =
+      "[System note: Your previous turn was interrupted mid-run — recovering.]\n\nQuestion";
+    const preview = createHandoffPreview({ ...base, mode: "full" }, [
+      { role: "user", text: "Question" },
+      { role: "user", text: recoveryNote },
+      { role: "assistant", text: "Recovered answer" },
+    ]);
+
+    expect(preview.messages.map((message) => message.text)).toEqual([
+      "Question",
+      "Recovered answer",
+    ]);
+    expect(preview.envelope).not.toContain(recoveryNote);
+  });
+
   it("rejects a stale selected message without returning a changed preview", () => {
     expect(() =>
       createHandoffPreview(

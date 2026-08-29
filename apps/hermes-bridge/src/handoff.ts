@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import type {
-  HermesChatMessage,
-  HermesConversationRef,
-  HermesHandoffMessage,
-  HermesHandoffMessageRef,
-  HermesHandoffMode,
-  HermesHandoffPreview,
-  HermesHandoffPreviewInput,
+import {
+  isVisibleHermesHandoffMessage,
+  type HermesChatMessage,
+  type HermesConversationRef,
+  type HermesHandoffMessage,
+  type HermesHandoffMessageRef,
+  type HermesHandoffMode,
+  type HermesHandoffPreview,
+  type HermesHandoffPreviewInput,
 } from "@contexcgi/protocol";
 
 export const HANDOFF_SCHEMA_VERSION = 1 as const;
@@ -46,7 +47,7 @@ export function visibleHandoffMessages(
 ): HermesHandoffMessage[] {
   const visible: HermesHandoffMessage[] = [];
   transcript.forEach((message, index) => {
-    if (message.role !== "user" && message.role !== "assistant") return;
+    if (!isVisibleHermesHandoffMessage(message)) return;
     visible.push({
       ordinal: message.ordinal ?? index,
       role: message.role,

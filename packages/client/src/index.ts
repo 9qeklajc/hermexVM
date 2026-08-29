@@ -916,6 +916,10 @@ export {
   type PiTranscriptionCapabilities,
   type PiTranscriptionLanguage,
 } from "./pi.js";
+export {
+  isHermesAutoContinueNote,
+  isVisibleHermesHandoffMessage,
+} from "@contexcgi/protocol";
 export type {
   HermesActiveTurn,
   HermesActivityEvent,

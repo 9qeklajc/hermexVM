@@ -1,4 +1,8 @@
-import type { HermesChatEvent, HermesChatMessage } from "./api";
+import {
+  isHermesAutoContinueNote,
+  type HermesChatEvent,
+  type HermesChatMessage,
+} from "./api";
 
 /** One rendered row in the conversation. */
 export type ChatItem =
@@ -63,16 +67,6 @@ export type ChatViewState = {
 let seq = 0;
 const nextId = () => `i${++seq}`;
 
-// Hermes submits this synthetic user turn after a backend/bridge crash so the
-// model can continue the interrupted prompt. It is internal recovery plumbing,
-// not a message authored by the user, and must never render as a user bubble.
-const AUTO_CONTINUE_NOTE_PREFIX =
-  "[System note: Your previous turn was interrupted mid-run";
-
-function isAutoContinueNote(text: string | undefined): boolean {
-  return Boolean(text?.trimStart().startsWith(AUTO_CONTINUE_NOTE_PREFIX));
-}
-
 export const emptyChat = (): ChatViewState => ({
   items: [],
   activity: null,
@@ -106,7 +100,7 @@ export function fromHistory(messages: HermesChatMessage[]): ChatViewState {
   const items: ChatItem[] = [];
   for (const message of messages) {
     if (message.role === "user") {
-      if (isAutoContinueNote(message.text)) continue;
+      if (isHermesAutoContinueNote(message.text)) continue;
       items.push({
         kind: "user",
         id: nextId(),
@@ -155,7 +149,7 @@ export function withInflightTurn(
   const lastUser = [...items].reverse().find((item) => item.kind === "user");
   if (
     inflight?.user &&
-    !isAutoContinueNote(inflight.user) &&
+    !isHermesAutoContinueNote(inflight.user) &&
     lastUser?.text !== inflight.user
   ) {
     items.push({ kind: "user", id: nextId(), text: inflight.user });

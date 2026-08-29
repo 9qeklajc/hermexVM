@@ -2,7 +2,11 @@ import { HermesChatClient } from "@contexcgi/client";
 import { getPublicKey, nip19 } from "nostr-tools";
 import { hexToBytes } from "nostr-tools/utils";
 
-export { HermesChatClient } from "@contexcgi/client";
+export {
+  HermesChatClient,
+  isHermesAutoContinueNote,
+  isVisibleHermesHandoffMessage,
+} from "@contexcgi/client";
 export type {
   HermesAgentProfile,
   HermesChatEvent,

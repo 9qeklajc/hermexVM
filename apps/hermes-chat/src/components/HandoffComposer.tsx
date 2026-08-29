@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  HermesAgentProfile,
-  HermesChatMessage,
-  HermesChatSummary,
-  HermesHandoffPreview,
-  HermesHandoffRecord,
+import {
+  isVisibleHermesHandoffMessage,
+  type HermesAgentProfile,
+  type HermesChatMessage,
+  type HermesChatSummary,
+  type HermesHandoffPreview,
+  type HermesHandoffRecord,
 } from "../lib/api";
 import { activityKey, useActivity, useConnection } from "../lib/store";
 
@@ -77,7 +78,7 @@ export function HandoffComposer({
         setAgents(choices);
         setHistory(links);
         const visible = transcript.messages.filter(
-          (message) => message.role === "user" || message.role === "assistant",
+          isVisibleHermesHandoffMessage,
         );
         const signature = JSON.stringify(
           visible.map((message) => [
