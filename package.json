@@ -17,6 +17,7 @@
     "app:build": "pnpm --filter @contexcgi/protocol build && pnpm --filter @contexcgi/client build && pnpm --filter @contexcgi/hermes-chat build",
     "app:sync": "pnpm app:build && pnpm --filter @contexcgi/hermes-chat android:sync",
     "app:apk": "pnpm app:sync && pnpm --filter @contexcgi/hermes-chat android:apk",
+    "app:apk:release": "pnpm app:sync && HERMEXVM_SIGNING_PROPERTIES=${HERMEXVM_SIGNING_PROPERTIES:-/home/you/mydata/hermexvm-release-signing.properties} pnpm --filter @contexcgi/hermes-chat android:apk:release",
     "bridge:dev": "pnpm --filter @contexcgi/hermes-bridge dev",
     "bridge:build": "pnpm --filter @contexcgi/protocol build && pnpm --filter @contexcgi/file-transfer build && pnpm --filter @contexcgi/bridge-auth build && pnpm --filter @contexcgi/bridge-relay build && pnpm --filter @contexcgi/hermes-bridge build",
     "bridge:start": "pnpm bridge:build && pnpm --filter @contexcgi/hermes-bridge start",

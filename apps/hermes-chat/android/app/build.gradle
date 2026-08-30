@@ -1,5 +1,11 @@
 apply plugin: 'com.android.application'
 
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesPath = System.getenv('HERMEXVM_SIGNING_PROPERTIES')
+if (releaseSigningPropertiesPath) {
+    file(releaseSigningPropertiesPath).withInputStream { releaseSigningProperties.load(it) }
+}
+
 android {
     namespace "ai.hermex.vm"
     compileSdk rootProject.ext.compileSdkVersion
@@ -16,8 +22,21 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (!releaseSigningProperties.isEmpty()) {
+                storeFile file(releaseSigningProperties['storeFile'])
+                storePassword releaseSigningProperties['storePassword']
+                keyAlias releaseSigningProperties['keyAlias']
+                keyPassword releaseSigningProperties['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
+            if (!releaseSigningProperties.isEmpty()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
