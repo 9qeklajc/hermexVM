@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useNav } from "../lib/store";
 
-/** Official Hermes Agent desktop mark from Nous Research's upstream app. */
+/** hermexVM app mark. */
 export function HermesMark({ size = 40 }: { size?: number }) {
   return (
     <img
