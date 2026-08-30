@@ -1,0 +1,123 @@
+name: Release Android APK
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-android-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-attach-apk:
+    name: Build and attach signed APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.0.0
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify release version
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          release_version="${TAG_NAME#v}"
+          package_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          android_version="$(awk -F '"' '/versionName / { print $2; exit }' apps/hermes-chat/android/app/build.gradle)"
+
+          test "$release_version" = "$package_version" || {
+            echo "Release tag version $release_version does not match package.json version $package_version" >&2
+            exit 1
+          }
+          test "$release_version" = "$android_version" || {
+            echo "Release tag version $release_version does not match Android versionName $android_version" >&2
+            exit 1
+          }
+
+      - name: Run project checks
+        run: pnpm check
+
+      - name: Run smoke test
+        run: pnpm smoke
+
+      - name: Restore release signing files
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.HERMEXVM_RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_SIGNING_PROPERTIES_BASE64: ${{ secrets.HERMEXVM_RELEASE_SIGNING_PROPERTIES_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${RELEASE_KEYSTORE_BASE64:?Missing HERMEXVM_RELEASE_KEYSTORE_BASE64}"
+          : "${RELEASE_SIGNING_PROPERTIES_BASE64:?Missing HERMEXVM_RELEASE_SIGNING_PROPERTIES_BASE64}"
+
+          signing_dir="$GITHUB_WORKSPACE/apps/hermes-chat/android/app"
+          signing_properties="$RUNNER_TEMP/hermexvm-release-signing.properties"
+
+          printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$signing_dir/release.keystore"
+          printf '%s' "$RELEASE_SIGNING_PROPERTIES_BASE64" | base64 --decode > "$signing_properties"
+          chmod 600 "$signing_dir/release.keystore" "$signing_properties"
+
+          echo "HERMEXVM_SIGNING_PROPERTIES=$signing_properties" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        run: pnpm app:apk:release
+
+      - name: Verify and stage release artifact
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          source_apk="apps/hermes-chat/android/app/build/outputs/apk/release/app-release.apk"
+          test -s "$source_apk"
+
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose "$source_apk"
+
+          safe_tag="$(printf '%s' "$TAG_NAME" | tr '/ ' '--')"
+          release_apk="dist/hermexVM-${safe_tag}.apk"
+          mkdir -p dist
+          install -m 0644 "$source_apk" "$release_apk"
+          sha256sum "$release_apk" > "$release_apk.sha256"
+
+          echo "RELEASE_APK=$release_apk" >> "$GITHUB_ENV"
+          echo "RELEASE_CHECKSUM=$release_apk.sha256" >> "$GITHUB_ENV"
+
+      - name: Attach APK to GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG_NAME" \
+            "$RELEASE_APK" \
+            "$RELEASE_CHECKSUM" \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"

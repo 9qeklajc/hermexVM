@@ -297,16 +297,26 @@ printf 'sdk.dir=%s\n' "$ANDROID_HOME" \
 pnpm app:apk
 ```
 
-Outputs:
+Output:
 
-- Gradle: `apps/hermes-chat/android/app/build/outputs/apk/debug/app-debug.apk`
-- Checked-in artifact: `apps/hermes-chat/hermexvm-debug.apk`
+- `apps/hermes-chat/android/app/build/outputs/apk/debug/app-debug.apk`
 
 Install with:
 
 ```bash
-adb install -r apps/hermes-chat/hermexvm-debug.apk
+adb install -r apps/hermes-chat/android/app/build/outputs/apk/debug/app-debug.apk
 ```
+
+## GitHub releases
+
+Publishing a GitHub release triggers `.github/workflows/release-android.yml`. The workflow checks out the release tag, verifies that the tag matches both `package.json` and Android `versionName`, runs `pnpm check` and `pnpm smoke`, builds and verifies the signed release APK, and attaches the APK plus its SHA-256 checksum to the release.
+
+The repository requires these encrypted GitHub Actions secrets:
+
+- `HERMEXVM_RELEASE_KEYSTORE_BASE64` — base64-encoded release keystore.
+- `HERMEXVM_RELEASE_SIGNING_PROPERTIES_BASE64` — base64-encoded Gradle signing properties with `storeFile=release.keystore`.
+
+Before publishing a release, update `version` in `package.json`, `versionName` and `versionCode` in `apps/hermes-chat/android/app/build.gradle`, then create a matching tag such as `v1.2.3`. Release builds fail closed when either signing secret is absent.
 
 ## Troubleshooting
 
