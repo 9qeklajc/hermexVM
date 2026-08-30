@@ -7,7 +7,8 @@ import { Spinner } from "./ui";
  * mirroring the Hermes TUI/desktop model picker. Each provider group is
  * collapsible (tap the header) so a provider with 36 models doesn't dominate
  * the screen. Selecting a model calls `onSelect` with the model id and its
- * provider slug — the parent enforces the switch on the next request.
+ * provider slug — the parent applies it immediately when the conversation has
+ * a durable session, or atomically with the first send for a new conversation.
  */
 export function ModelPicker({
   agentId,

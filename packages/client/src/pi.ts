@@ -1,5 +1,5 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import { Client } from "@contextvm/mcp-sdk/client/index.js";
+import type { RequestOptions } from "@contextvm/mcp-sdk/shared/protocol.js";
 import {
   ApplesauceRelayPool,
   callToolStream,

@@ -1,4 +1,4 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Client } from "@contextvm/mcp-sdk/client/index.js";
 import { nip19 } from "nostr-tools";
 import {
   callToolStream,

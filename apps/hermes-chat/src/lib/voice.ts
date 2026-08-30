@@ -174,6 +174,14 @@ export async function startVoiceRecording(
     });
   };
 
+  // If the OS/browser silently ends a track (audio focus loss on Android,
+  // device switch, WebView backgrounding), MediaRecorder may never fire
+  // onstop on its own — route through requestStop so the recording always
+  // finalizes and the caller's UI never gets stuck in "recording".
+  for (const track of stream.getTracks()) {
+    track.addEventListener?.("ended", () => requestStop(), { once: true });
+  }
+
   const requestStop = () => {
     if (timer) {
       clearTimeout(timer);
@@ -181,9 +189,19 @@ export async function startVoiceRecording(
     }
     if (settled || recorder.state === "inactive") {
       // Already finished, or never actually reached "recording" (e.g. the
-      // OS/browser ended the track) — finalize directly so tracks/timer are
-      // released even though onstop will never fire.
-      finalize(() => {});
+      // OS/browser ended the track) — onstop may never fire, so finalize
+      // directly AND emit onStop. Without the emit the caller's UI would be
+      // stuck in "recording" with a live timer interval that then leaks into
+      // the next recording (two intervals fighting over the elapsed display).
+      // If we already settled, the emit is a no-op (finalize guards it).
+      finalize(() => {
+        if (cancelled) return;
+        callbacks.onStop({
+          blob: new Blob(chunks, { type: mimeType }),
+          mimeType,
+          durationMs: Date.now() - startedAt,
+        });
+      });
       return;
     }
     recorder.stop();

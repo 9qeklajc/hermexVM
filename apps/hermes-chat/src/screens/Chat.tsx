@@ -149,9 +149,11 @@ export function ChatScreen({
   // stream or sets state after the screen is gone (a post-cleanup attach
   // would leak the stream).
   const disposedRef = useRef(false);
-  // Pending model switch: set when the user picks a model in the modal, then
-  // enforced on the next sendMessage call. The switch is session-scoped so
-  // it only affects this conversation.
+  // A model selected before the first prompt cannot be persisted yet because
+  // the conversation has no durable chat id/session. Keep only that case
+  // pending and enforce it inside the first send. Existing conversations are
+  // switched immediately through hermes.model.switch so navigation, reconnect,
+  // or Android process recreation cannot lose the selection.
   const [pendingModel, setPendingModel] = useState<{
     model: string;
     provider: string;
@@ -829,20 +831,35 @@ export function ChatScreen({
     void loadModels().catch(() => undefined);
   }, [initialChatId, loadModels]);
 
-  // Called when the user selects a model in the picker. Stash it and enforce
-  // it at SEND time — the bridge applies it to the exact gateway session that
-  // runs the next turn (see handleSendMessage / hermes.chat.send's model
-  // override). This is the ONLY path that works for a brand-new (unsent) chat
-  // too, where there is no durable chatId yet to pin a switch on — previously
-  // that first request silently fell back to the profile default while the
-  // top-bar chip already showed the picked model.
+  // Existing conversations have a durable gateway session, so apply the switch
+  // immediately. This survives every later lifecycle boundary (navigation,
+  // relay reconnect, app backgrounding, Android process recreation) and takes
+  // effect on the next prompt even when the current turn is still running.
+  // A brand-new unsent conversation has no session yet; retain the selection
+  // and enforce it atomically inside its first hermes.chat.send instead.
   const handleModelSelect = useCallback(
     async (model: string, provider: string) => {
-      setPendingModel({ model, provider });
+      const chatId = chatIdRef.current;
+      if (chatId) {
+        const result = await client.switchModel({
+          agentId,
+          chatId,
+          model,
+          ...(provider ? { provider } : {}),
+        });
+        if (result.confirmRequired) {
+          throw new Error(
+            result.confirmMessage ?? "The model switch requires confirmation.",
+          );
+        }
+        setPendingModel(null);
+      } else {
+        setPendingModel({ model, provider });
+      }
       setActiveModel(model);
       setActiveProvider(provider);
     },
-    [],
+    [client, agentId],
   );
 
   // Called when the user selects a project in the picker. For an existing

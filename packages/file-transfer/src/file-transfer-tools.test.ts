@@ -48,10 +48,12 @@ describe("file-transfer chunk framing", () => {
       },
     });
 
-    // The legacy voice uploader has reliably used 24,000-character tool calls.
-    // @contextvm/sdk 0.11.x encrypts the complete request before deciding to
-    // fragment it, so the larger nominal CEP-22 threshold is not safe here.
-    expect(Buffer.byteLength(request, "utf8")).toBeLessThanOrEqual(24_000);
+    // Measured against @contextvm/sdk 0.13.12 (NIP-44 gift wrap, 48,000-byte
+    // published-event threshold): a 22 KiB chunk yields a ~30,700-char plaintext
+    // event and a ~44,200-byte published gift-wrapped event — the largest
+    // power-of-two-free size that stays under the SDK's 48,000-byte oversized
+    // transfer threshold without triggering CEP-22 fragmentation round-trips.
+    expect(Buffer.byteLength(request, "utf8")).toBeLessThanOrEqual(31_000);
   });
 });
 

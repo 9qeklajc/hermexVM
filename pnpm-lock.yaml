@@ -38,11 +38,14 @@ importers:
       '@contexcgi/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
+      '@contextvm/mcp-sdk':
+        specifier: 1.30.0
+        version: 1.30.0(zod@4.4.3)
       '@contextvm/sdk':
-        specifier: ^0.11.8
-        version: 0.11.14(typescript@5.9.3)
+        specifier: ^0.13.12
+        version: 0.13.12(typescript@5.9.3)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
+        specifier: ^1.30.0
         version: 1.30.0(zod@4.4.3)
       dotenv:
         specifier: ^16.6.1
@@ -171,8 +174,8 @@ importers:
   packages/bridge-relay:
     dependencies:
       '@contextvm/sdk':
-        specifier: ^0.11.8
-        version: 0.11.14(typescript@5.9.3)
+        specifier: ^0.13.12
+        version: 0.13.12(typescript@5.9.3)
     devDependencies:
       '@repo/eslint-config':
         specifier: workspace:*
@@ -198,11 +201,14 @@ importers:
       '@contexcgi/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@contextvm/mcp-sdk':
+        specifier: 1.30.0
+        version: 1.30.0(zod@4.4.3)
       '@contextvm/sdk':
-        specifier: ^0.11.8
-        version: 0.11.14(typescript@5.9.3)
+        specifier: ^0.13.12
+        version: 0.13.12(typescript@5.9.3)
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
+        specifier: ^1.30.0
         version: 1.30.0(zod@4.4.3)
       '@noble/hashes':
         specifier: ^2.2.0
@@ -269,7 +275,7 @@ importers:
         specifier: workspace:*
         version: link:../protocol
       '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
+        specifier: ^1.30.0
         version: 1.30.0(zod@4.4.3)
       zod:
         specifier: ^4.4.3
@@ -430,11 +436,15 @@ packages:
     peerDependencies:
       '@capacitor/core': '>=7.0.0'
 
-  '@contextvm/sdk@0.11.14':
-    resolution: {integrity: sha512-QTRReNJ3NP6kOT2umHYmhYLSUBK4PtX5wFy4MUm7U/CJq1vnmPnmQ3HnHTG+gNtyLNiv4I3epuUPA6MJm3K/WA==}
-    engines: {bun: '>=1.2.0'}
+  '@contextvm/mcp-sdk@1.30.0':
+    resolution: {integrity: sha512-Z4xyxxxtKnczEgVzLagaUdT1EtoVzc1bjr6kpIfTlw7mP5ESAzXeDUAMO9leIwituphz2ELE6ad9BjW7blDjjw==}
+    engines: {node: '>=18'}
     peerDependencies:
-      typescript: ^5.9.3
+      zod: ^3.25 || ^4.0
+
+  '@contextvm/sdk@0.13.12':
+    resolution: {integrity: sha512-l8T5ys8FjTw6rSUXaaKBvKxl2rD8ZdF334MnQwE6QCOKx+cKtGDMrUokCKyqkwEmndTWACXiRZkNt0dkbAd3Vg==}
+    engines: {bun: '>=1.2.0'}
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -914,10 +924,6 @@ packages:
     resolution: {integrity: sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ==}
     engines: {node: '>= 16'}
 
-  '@noble/hashes@1.8.0':
-    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
-    engines: {node: ^14.21.3 || >=16}
-
   '@noble/hashes@2.0.1':
     resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
     engines: {node: '>= 20.19.0'}
@@ -1295,11 +1301,11 @@ packages:
     resolution: {integrity: sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg==}
     engines: {node: '>=8'}
 
-  applesauce-core@5.2.0:
-    resolution: {integrity: sha512-aSuM6q6/Gs2FGUqytlHDjKZpSst2xKaT0vMXUQFWUctECNIxvwy6/hTDDInukMuI9mrQdjnO781ZJJgghI7RNw==}
+  applesauce-core@6.2.0:
+    resolution: {integrity: sha512-O6AlVyzqcuIhTOIuexm6UWmx7mRIa2D98gJP7K7vFGf90YdtvSH78AsKQWZXJ0Pk/K14at+9zkwfCkFr7ghgNw==}
 
-  applesauce-relay@5.2.0:
-    resolution: {integrity: sha512-ty8PzHenocGdTr3x3It8Ql0rMD9rxB6VGCzGRfL5QF6epdstv2YHKuTyr8QdPBvf7yxfc7oZcMi6djSwNxXqkQ==}
+  applesauce-relay@6.2.1:
+    resolution: {integrity: sha512-YIUHEtL2Fl5FZjeKYe/IuwL3OnMUNP2j4ydSr3iZDeHEZSEda4d1PoChefiNhtjE/U/F5OBHEbAX1zCHRZoxpg==}
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -1734,8 +1740,8 @@ packages:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@8.6.2:
-    resolution: {integrity: sha512-YH4ru+eOJxQABscKFfRCy9R7x9QFGdezclVMwwgFFndzS2Xnm0uo6B0ABZsLhcpeptGv2qvuJVWlQr9gQZoC3A==}
+  express-rate-limit@8.7.0:
+    resolution: {integrity: sha512-hOwV7WOxXfjRpAM1DSJWZDXx3GhplwD8IfwuwvogD8i1Qnkgosw/H45s4ZnFAUHDAhPjlY9hLBvJhKmGMyY26g==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -1956,8 +1962,8 @@ packages:
     resolution: {integrity: sha512-4gd7VpWNQNB4UKKCFFVcp1AVv+FMOgs9NKzjHKusc8jTMhd5eL1NqQqOpE0KzMds804/yHlglp3uxgluOqAPLw==}
     engines: {node: '>= 0.4'}
 
-  ip-address@10.5.0:
-    resolution: {integrity: sha512-R5SnVLJmgYYvf2F2ZgwSBnelz5G4q5AxIC277GDfUaNbrZKNANcBC7RHqYYePlszf4kBolVkJauG0ZjHHFh55g==}
+  ip-address@10.7.0:
+    resolution: {integrity: sha512-BGFsyJd5mpXp3rK6jIdADLNgpJUK1jnjzvYF8lK+VyDab9JAmqN0YOKDdP17HlgKb2+ehPgDc8EtnRLbGCAMhA==}
     engines: {node: '>= 12'}
 
   ipaddr.js@1.9.1:
@@ -2254,14 +2260,6 @@ packages:
     resolution: {integrity: sha512-YHs7BmmcsdAI5Ozuf8JZo6PT0mv2GIWC9vMfvUC3dp65M8hn7Ux8CPL+2oBI7juNuj9d0ndhTcznq2ODBps9cQ==}
     engines: {node: '>=18'}
 
-  nostr-tools@2.18.2:
-    resolution: {integrity: sha512-lUCJQd9YZG3kEvxV5Zgm7qUkBpaeuvFrtqBz4TJLAxHzUn2pE7nmZZRDQmNzp5neEw20tQS3jR16o7XzzF8ncg==}
-    peerDependencies:
-      typescript: '>=5.0.0'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   nostr-tools@2.19.4:
     resolution: {integrity: sha512-qVLfoTpZegNYRJo5j+Oi6RPu0AwLP6jcvzcB3ySMnIT5DrAGNXfs5HNBspB/2HiGfH3GY+v6yXkTtcKSBQZwSg==}
     peerDependencies:
@@ -2443,8 +2441,8 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
-  qs@6.15.3:
-    resolution: {integrity: sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==}
+  qs@6.16.0:
+    resolution: {integrity: sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==}
     engines: {node: '>=0.6'}
 
   queue-microtask@1.2.3:
@@ -3160,22 +3158,29 @@ snapshots:
     dependencies:
       '@capacitor/core': 7.6.8
 
-  '@contextvm/sdk@0.11.14(typescript@5.9.3)':
+  '@contextvm/mcp-sdk@1.30.0(zod@4.4.3)':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.30.0(zod@4.4.3)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      cross-spawn: 7.0.6
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+
+  '@contextvm/sdk@0.13.12(typescript@5.9.3)':
+    dependencies:
+      '@contextvm/mcp-sdk': 1.30.0(zod@4.4.3)
       '@noble/hashes': 2.4.0
-      applesauce-relay: 5.2.0(typescript@5.9.3)
+      applesauce-relay: 6.2.1(typescript@5.9.3)
       canonicalize: 2.1.0
-      nostr-tools: 2.18.2(typescript@5.9.3)
+      nostr-tools: 2.25.0(typescript@5.9.3)
       pino: 10.3.1
       rxjs: 7.8.2
-      typescript: 5.9.3
       ws: 8.21.3
       zod: 4.4.3
     transitivePeerDependencies:
-      - '@cfworker/json-schema'
       - bufferutil
       - supports-color
+      - typescript
       - utf-8-validate
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -3515,7 +3520,7 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.1.1
       express: 5.2.1
-      express-rate-limit: 8.6.2(express@5.2.1)
+      express-rate-limit: 8.7.0(express@5.2.1)
       hono: 4.13.5
       jose: 6.2.10
       json-schema-typed: 8.0.2
@@ -3555,8 +3560,6 @@ snapshots:
   '@noble/hashes@1.3.1': {}
 
   '@noble/hashes@1.3.2': {}
-
-  '@noble/hashes@1.8.0': {}
 
   '@noble/hashes@2.0.1': {}
 
@@ -3660,7 +3663,7 @@ snapshots:
   '@scure/bip32@1.3.1':
     dependencies:
       '@noble/curves': 1.1.0
-      '@noble/hashes': 1.3.2
+      '@noble/hashes': 1.3.1
       '@scure/base': 1.1.1
 
   '@scure/bip32@2.0.1':
@@ -3671,7 +3674,7 @@ snapshots:
 
   '@scure/bip39@1.2.1':
     dependencies:
-      '@noble/hashes': 1.3.2
+      '@noble/hashes': 1.3.1
       '@scure/base': 1.1.1
 
   '@scure/bip39@2.0.1':
@@ -3933,7 +3936,7 @@ snapshots:
     dependencies:
       color-convert: 2.0.1
 
-  applesauce-core@5.2.0(typescript@5.9.3):
+  applesauce-core@6.2.0(typescript@5.9.3):
     dependencies:
       debug: 4.4.3
       fast-deep-equal: 3.1.3
@@ -3945,10 +3948,10 @@ snapshots:
       - supports-color
       - typescript
 
-  applesauce-relay@5.2.0(typescript@5.9.3):
+  applesauce-relay@6.2.1(typescript@5.9.3):
     dependencies:
-      '@noble/hashes': 1.8.0
-      applesauce-core: 5.2.0(typescript@5.9.3)
+      '@noble/hashes': 2.4.0
+      applesauce-core: 6.2.0(typescript@5.9.3)
       nanoid: 5.1.16
       nostr-tools: 2.19.4(typescript@5.9.3)
       rxjs: 7.8.2
@@ -4047,7 +4050,7 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.3
       on-finished: 2.4.1
-      qs: 6.15.3
+      qs: 6.16.0
       raw-body: 3.0.2
       type-is: 2.1.0
     transitivePeerDependencies:
@@ -4531,11 +4534,11 @@ snapshots:
 
   expect-type@1.4.0: {}
 
-  express-rate-limit@8.6.2(express@5.2.1):
+  express-rate-limit@8.7.0(express@5.2.1):
     dependencies:
       debug: 4.4.3
       express: 5.2.1
-      ip-address: 10.5.0
+      ip-address: 10.7.0
     transitivePeerDependencies:
       - supports-color
 
@@ -4561,7 +4564,7 @@ snapshots:
       once: 1.4.0
       parseurl: 1.3.3
       proxy-addr: 2.0.7
-      qs: 6.15.3
+      qs: 6.16.0
       range-parser: 1.3.0
       router: 2.2.0
       send: 1.2.1
@@ -4787,7 +4790,7 @@ snapshots:
       hasown: 2.0.4
       side-channel: 1.1.1
 
-  ip-address@10.5.0: {}
+  ip-address@10.7.0: {}
 
   ipaddr.js@1.9.1: {}
 
@@ -5068,18 +5071,6 @@ snapshots:
 
   node-releases@2.0.54: {}
 
-  nostr-tools@2.18.2(typescript@5.9.3):
-    dependencies:
-      '@noble/ciphers': 0.5.3
-      '@noble/curves': 1.2.0
-      '@noble/hashes': 1.3.1
-      '@scure/base': 1.1.1
-      '@scure/bip32': 1.3.1
-      '@scure/bip39': 1.2.1
-      nostr-wasm: 0.1.0
-    optionalDependencies:
-      typescript: 5.9.3
-
   nostr-tools@2.19.4(typescript@5.9.3):
     dependencies:
       '@noble/ciphers': 0.5.3
@@ -5287,7 +5278,7 @@ snapshots:
 
   punycode@2.3.1: {}
 
-  qs@6.15.3:
+  qs@6.16.0:
     dependencies:
       es-define-property: 1.0.1
       side-channel: 1.1.1

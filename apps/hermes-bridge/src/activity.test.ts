@@ -48,6 +48,21 @@ describe("ActivityTracker", () => {
     expect(tracker.activeCount).toBe(0);
   });
 
+  it("evicts the oldest listener when the cap is reached, not the newcomer", () => {
+    const tracker = new ActivityTracker();
+    const seen: string[][] = [];
+    for (let i = 0; i < 21; i++) {
+      const bucket: string[] = [];
+      seen.push(bucket);
+      tracker.subscribe((event) => bucket.push(event.type));
+    }
+    tracker.start("coder", "chat1");
+    // The 21st (newest) subscriber still receives events…
+    expect(seen[20]).toEqual(["turn.started"]);
+    // …while the oldest was evicted to make room.
+    expect(seen[0]).toEqual([]);
+  });
+
   it("keeps other subscribers alive when one throws", () => {
     const tracker = new ActivityTracker();
     const seen: string[] = [];

@@ -53,3 +53,4 @@ yarn-error.log*
 /.tmp/
 # apps/camera holds only Capacitor sync output — no source to regenerate from
 /apps/camera/
+docs/research

@@ -184,7 +184,7 @@ export const DEFAULT_MAX_FILE_BYTES = 256 * 1024 * 1024;
  * encrypts the whole request before CEP-22 fragmentation and otherwise fails
  * locally before the chunk reaches the bridge.
  */
-export const DEFAULT_CHUNK_BYTES = 16 * 1024;
+export const DEFAULT_CHUNK_BYTES = 22 * 1024;
 /** Uploads must be finalized within this window (default 15 min). */
 export const DEFAULT_UPLOAD_TIMEOUT_MS = 15 * 60 * 1000;
 /** Aggregate durable-upload guards prevent authorized clients from filling disk. */

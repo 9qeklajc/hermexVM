@@ -25,4 +25,11 @@ describe("chat composer interaction contract", () => {
     expect(styles).toContain("Four 20px text rows plus 21px vertical padding");
     expect(styles).toContain("max-height: 101px");
   });
+
+  it("persists model selection immediately for an existing conversation", () => {
+    expect(chatSource).toContain("await client.switchModel({");
+    expect(chatSource).toContain("chatId,");
+    expect(chatSource).toContain("setPendingModel(null)");
+    expect(chatSource).toContain("setPendingModel({ model, provider })");
+  });
 });

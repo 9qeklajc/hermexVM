@@ -33,10 +33,18 @@ export class ActivityTracker {
 
   subscribe(listener: ActivityListener): () => void {
     if (this.listeners.size >= ActivityTracker.MAX_LISTENERS) {
+      // Evict the OLDEST listener (Set preserves insertion order) instead of
+      // rejecting the new one. Every real client reconnect re-subscribes to
+      // `hermes.events.stream`; leaked ones from vanished clients linger until
+      // the 1h maxStreamLifetimeMs reaper. Rejecting the new subscriber let
+      // stale leaks block LIVE phones from starting up (their events.stream
+      // kept failing → connect retry loop → slow app load); evicting the
+      // oldest leak always prefers whoever is actually still connected.
+      const oldest = this.listeners.values().next().value;
+      if (oldest !== undefined) this.listeners.delete(oldest);
       console.warn(
-        `[hermes-bridge] activity.subscribe rejected — already ${this.listeners.size} listeners (possible leak)`,
+        `[hermes-bridge] activity.subscribe evicted oldest listener (cap ${ActivityTracker.MAX_LISTENERS} reached — possible leak)`,
       );
-      return () => {};
     }
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

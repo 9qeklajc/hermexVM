@@ -357,6 +357,10 @@ export function VoiceRecorder({
       setPhase("recording");
       const startedAt = Date.now();
       setElapsedMs(0);
+      // Defensive: if a previous recording somehow left its interval alive
+      // (e.g. a stop that never emitted), kill it — two live intervals would
+      // make the timer visibly alternate between two elapsed counts.
+      stopTimer();
       tickRef.current = setInterval(
         () => setElapsedMs(Date.now() - startedAt),
         250,
