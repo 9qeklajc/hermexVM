@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import type { FileTransferDescriptor } from "../lib/api";
 import { isTransientTransportError } from "../lib/errors";
 import {
@@ -9,8 +10,48 @@ import {
   savePendingFileUpload,
   type PendingFileUpload,
 } from "../lib/file-upload";
+import { CameraCapture } from "./CameraCapture";
 
 type Phase = "loading" | "idle" | "uploading" | "done" | "error" | "resume";
+
+/** True when a camera can be attached from: the native app uses the device
+camera through a `capture` input; the web falls back to a getUserMedia webcam. */
+const CAMERA_SUPPORTED =
+  Capacitor.isNativePlatform() ||
+  (typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia));
+
+const CameraIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </svg>
+);
+
+const DocumentIcon = () => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden
+  >
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6" />
+    <path d="M16 13H8" />
+    <path d="M16 17H8" />
+  </svg>
+);
 
 /** Uploads arbitrary files with bounded reads and durable, user-assisted resume. */
 export function FileUploader({
@@ -29,6 +70,11 @@ export function FileUploader({
   }) => Promise<import("@contexcgi/client").HermesChatClient>;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  // Camera input: `capture="environment"` makes Capacitor's WebView file
+  // chooser launch ACTION_IMAGE_CAPTURE (the device camera app) instead of
+  // the document picker. Only ever clicked on the native platform; the web
+  // route goes through the CameraCapture webcam modal instead.
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const lastFileRef = useRef<File | null>(null);
   const pendingRef = useRef<PendingFileUpload | null>(null);
   const pendingSaveRef = useRef<Promise<void>>(Promise.resolve());
@@ -38,6 +84,10 @@ export function FileUploader({
   const [progress, setProgress] = useState(0);
   const [filename, setFilename] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // WhatsApp-style attach menu: Camera (photo) / Document (any file).
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Webcam modal — only opened on non-native platforms.
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -203,6 +253,43 @@ export function FileUploader({
   }, [clearPending, client, waitForClient]);
 
   const busy = phase === "uploading";
+
+  // The composer is disabled while a turn runs — never leave a stale menu
+  // hanging over it, and never start an upload the pipeline would refuse.
+  useEffect(() => {
+    if (disabled && menuOpen) setMenuOpen(false);
+  }, [disabled, menuOpen]);
+
+  // Escape closes the attach menu, matching every other dialog in the app.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [menuOpen]);
+
+  // Camera option: native → device camera app via the capture input;
+  // web → live webcam modal. The captured File rides the exact same upload
+  // pipeline as a picked document (progress, resume chips, error handling).
+  const chooseCamera = useCallback(() => {
+    setMenuOpen(false);
+    if (Capacitor.isNativePlatform()) {
+      cameraInputRef.current?.click();
+    } else {
+      setCameraOpen(true);
+    }
+  }, []);
+
+  const handleCapturedPhoto = useCallback(
+    (file: File) => {
+      setCameraOpen(false);
+      void handleFile(file);
+    },
+    [handleFile],
+  );
+
   return (
     <div className="file-uploader">
       <input
@@ -215,16 +302,78 @@ export function FileUploader({
           event.target.value = "";
         }}
       />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleFile(file);
+          event.target.value = "";
+        }}
+      />
+      {menuOpen ? (
+        <>
+          {/* Transparent catcher for the tap-away that closes the menu. */}
+          <div
+            className="attach-menu-backdrop"
+            onClick={() => setMenuOpen(false)}
+          />
+          <div className="attach-menu" role="menu" aria-label="Attach">
+            {CAMERA_SUPPORTED ? (
+              <button
+                type="button"
+                className="attach-option"
+                role="menuitem"
+                onClick={chooseCamera}
+                aria-label="Take a photo with the camera"
+              >
+                <span className="attach-option__icon">
+                  <CameraIcon />
+                </span>
+                <span className="attach-option__label">Camera</span>
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="attach-option"
+              role="menuitem"
+              onClick={() => {
+                setMenuOpen(false);
+                inputRef.current?.click();
+              }}
+              aria-label="Choose a file"
+            >
+              <span className="attach-option__icon">
+                <DocumentIcon />
+              </span>
+              <span className="attach-option__label">Document</span>
+            </button>
+          </div>
+        </>
+      ) : null}
+      {cameraOpen ? (
+        <CameraCapture
+          onCancel={() => setCameraOpen(false)}
+          onCapture={handleCapturedPhoto}
+        />
+      ) : null}
       <button
         type="button"
         className="icon-button file-button"
         disabled={disabled || busy || phase === "loading"}
-        onClick={() => inputRef.current?.click()}
-        aria-label="Attach a file"
-        title="Attach a file"
+        onClick={() => setMenuOpen((open) => !open)}
+        aria-label="Attach"
+        title="Attach"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
       >
         {busy ? (
-          <span className="voice-spinner" aria-hidden />
+          <span className="file-upload-percent" aria-hidden>
+            {Math.min(99, progress)}%
+          </span>
         ) : (
           <svg
             width="20"
@@ -242,8 +391,8 @@ export function FileUploader({
         )}
       </button>
       {busy ? (
-        <span className="file-progress">
-          {filename} {progress}%
+        <span className="file-progress" title={filename}>
+          {filename}
         </span>
       ) : null}
       {busy ? (

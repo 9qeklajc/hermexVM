@@ -949,7 +949,17 @@ body {
   background: var(--chat-header);
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.28);
   white-space: normal;
+  /* Camera photos have long unbroken names (JPEG_20260830_203900_123456.jpg)
+     that must wrap inside the toast instead of overflowing it. */
+  overflow-wrap: anywhere;
   z-index: 3;
+}
+
+/* The upload percent lives in the attach button (like the voice recorder's
+   mic slot), so the busy toast carries only the filename — one truncated
+   line, never a second line. */
+.composer-field .file-progress {
+  white-space: nowrap;
 }
 
 .send-button {
@@ -1598,11 +1608,203 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Anchors the WhatsApp-style attach menu that pops above the composer. */
+  position: relative;
 }
 
 .file-button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* -- attach menu ------------------------------------------------------------------ */
+
+/* WhatsApp-style Camera / Document chooser popped from the attach button. The
+   backdrop is invisible and only exists to catch the tap-away that closes the
+   menu; it sits below the menu but above the chat content. */
+.attach-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+}
+
+.attach-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  display: flex;
+  gap: 4px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--chat-header);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.38);
+  z-index: 6;
+  animation: attach-menu-pop 0.16s ease;
+}
+
+@keyframes attach-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.attach-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  width: 82px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chat-copy);
+  font: inherit;
+}
+
+.attach-option__icon {
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--gold-soft) 62%, var(--surface-2));
+  color: var(--gold);
+  transition: transform 0.12s ease;
+}
+
+.attach-option__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.attach-option:active .attach-option__icon {
+  transform: scale(0.94);
+}
+
+.attach-option__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-screen .attach-option:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+/* -- webcam capture modal ---------------------------------------------------------- */
+
+/* Full-screen camera capture (web browsers only — the Android app uses the
+   device camera app through the capture input). */
+.camera-capture-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  animation: modal-fade 0.18s ease;
+}
+
+.camera-capture {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(92vw, 560px);
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  animation: attach-menu-pop 0.18s ease;
+}
+
+.camera-capture__viewport {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #000;
+}
+
+.camera-capture__viewport video {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  /* Mirrored selfie-style preview; the saved photo is unmirrored. */
+  transform: scaleX(-1);
+}
+
+.camera-capture__viewport .voice-spinner {
+  position: absolute;
+}
+
+.camera-capture__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+
+.camera-capture__shutter {
+  width: 64px;
+  height: 64px;
+  border: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--gold), var(--gold-strong));
+  color: #10161d;
+}
+
+.camera-capture__shutter svg {
+  width: 28px;
+  height: 28px;
+}
+
+.camera-capture__shutter:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.camera-capture__cancel {
+  border: 0;
+  background: transparent;
+  color: var(--chat-muted);
+  font: inherit;
+  font-weight: 650;
+  padding: 8px 10px;
+}
+
+.camera-capture__cancel:focus-visible,
+.camera-capture__shutter:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.camera-capture__spacer {
+  /* Balances the Cancel button so the shutter stays centered. */
+  width: 56px;
+}
+
+.camera-capture__error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  padding: 26px 16px;
+  text-align: center;
+  color: var(--chat-muted);
 }
 
 .file-progress {
@@ -1652,6 +1854,15 @@ body {
 
 /* Upload percent shown in place of the mic icon while a recording is sent. */
 .voice-upload-percent {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+  min-width: 34px;
+  text-align: center;
+}
+
+/* Upload percent shown in place of the paperclip icon while a file is sent. */
+.file-upload-percent {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--gold);

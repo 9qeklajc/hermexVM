@@ -5,6 +5,10 @@ const manifest = readFileSync(
   new URL("../android/app/src/main/AndroidManifest.xml", import.meta.url),
   "utf8",
 );
+const fileProviderPaths = readFileSync(
+  new URL("../android/app/src/main/res/xml/file_paths.xml", import.meta.url),
+  "utf8",
+);
 const mainActivity = readFileSync(
   new URL(
     "../android/app/src/main/java/ai/hermex/vm/MainActivity.java",
@@ -28,6 +32,27 @@ describe("Android app manifest", () => {
     expect(manifest).toContain("android.permission.RECORD_AUDIO");
     expect(manifest).toContain("android.permission.MODIFY_AUDIO_SETTINGS");
     expect(manifest).toContain("android.permission.POST_NOTIFICATIONS");
+  });
+
+  it("declares the camera permission Capacitor requests for WebView photo capture", () => {
+    // The attach menu's capture="environment" input routes through
+    // BridgeWebChromeClient: with CAMERA declared it requests the runtime
+    // permission, then launches ACTION_IMAGE_CAPTURE for the device camera.
+    expect(manifest).toContain("android.permission.CAMERA");
+    // …without filtering out camera-less devices from installs.
+    expect(manifest).toContain(
+      '<uses-feature\n        android:name="android.hardware.camera"\n        android:required="false" />',
+    );
+    // Capacitor's capture writes into the app-specific external files dir and
+    // shares it through the app FileProvider; without this path the provider
+    // throws and Capacitor silently falls back to the document picker.
+    expect(fileProviderPaths).toContain("external-files-path");
+    // Android 11+ package visibility: without this query declaration,
+    // resolveActivity(ACTION_IMAGE_CAPTURE) returns null and the camera
+    // falls back to the photo picker even after CAMERA was granted.
+    expect(manifest).toContain(
+      '<intent>\n            <action android:name="android.media.action.IMAGE_CAPTURE" />\n        </intent>',
+    );
   });
 
   it("resizes the WebView for the soft keyboard instead of panning away the header", () => {

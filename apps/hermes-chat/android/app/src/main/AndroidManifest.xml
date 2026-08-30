@@ -47,4 +47,24 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Android 13+ runtime permission for @capacitor/local-notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Camera photo capture from the attach menu: the capture="environment"
+         input makes BridgeWebChromeClient launch ACTION_IMAGE_CAPTURE. When
+         CAMERA is declared here, Capacitor requests it at runtime the first
+         time the WebView opens the camera, then hands the photo back. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Android 11+ package visibility: Capacitor's BridgeWebChromeClient
+         calls PackageManager.resolveActivity(ACTION_IMAGE_CAPTURE) before
+         launching the device camera from the attach menu's capture input.
+         Without this query declaration that lookup returns null on
+         targetSdk 30+, so the camera silently falls back to the document
+         picker ("Media capture intent could not be launched"). -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+    <!-- Keep the app installable on camera-less devices despite CAMERA. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
 </manifest>

@@ -5,6 +5,10 @@ const chatSource = readFileSync(
   new URL("./screens/Chat.tsx", import.meta.url),
   "utf8",
 );
+const fileUploaderSource = readFileSync(
+  new URL("./components/FileUploader.tsx", import.meta.url),
+  "utf8",
+);
 const styles = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
 
 describe("chat composer interaction contract", () => {
@@ -31,5 +35,53 @@ describe("chat composer interaction contract", () => {
     expect(chatSource).toContain("chatId,");
     expect(chatSource).toContain("setPendingModel(null)");
     expect(chatSource).toContain("setPendingModel({ model, provider })");
+  });
+
+  it("opens a WhatsApp-style attach menu with camera and document options", () => {
+    // The attach button toggles a menu instead of jumping straight into the
+    // file picker.
+    expect(fileUploaderSource).toContain('aria-haspopup="menu"');
+    expect(fileUploaderSource).toContain('role="menu"');
+    expect(fileUploaderSource).toContain("Camera");
+    expect(fileUploaderSource).toContain("Document");
+    // Tapping away or Escape closes the menu.
+    expect(fileUploaderSource).toContain("attach-menu-backdrop");
+    expect(fileUploaderSource).toMatch(/Escape.*setMenuOpen/);
+  });
+
+  it("shows upload progress inline in the attach button and truncates the filename toast", () => {
+    // The percent replaces the paperclip icon while uploading — same pattern
+    // as the voice recorder's mic slot — capped at 99% until the "done" toast
+    // confirms the upload really finished.
+    expect(fileUploaderSource).toContain('className="file-upload-percent"');
+    expect(fileUploaderSource).toContain("Math.min(99, progress)");
+    // The busy toast carries only the filename, so a long photo name can never
+    // push the percentage to an overflowing second line.
+    expect(fileUploaderSource).toContain(
+      'className="file-progress" title={filename}',
+    );
+    expect(fileUploaderSource).not.toContain("{filename} {progress}%");
+    // The toast is one ellipsized line; error/done toasts wrap long unbroken
+    // names inside the box instead of overflowing it.
+    expect(styles).toMatch(
+      /\.composer-field \.file-progress \{\s*white-space: nowrap;/s,
+    );
+    expect(styles).toContain("overflow-wrap: anywhere");
+    expect(styles).toContain(".file-upload-percent {");
+  });
+
+  it("routes the camera option through the device camera on Android and a webcam modal on the web", () => {
+    // capture="environment" makes Capacitor's WebView file chooser launch
+    // ACTION_IMAGE_CAPTURE (the device camera app) instead of the picker.
+    expect(fileUploaderSource).toContain('capture="environment"');
+    expect(fileUploaderSource).toContain("cameraInputRef.current?.click()");
+    // The web fallback is the getUserMedia webcam modal, not the file picker.
+    expect(fileUploaderSource).toContain("<CameraCapture");
+    // Both routes feed the same upload pipeline as picked documents.
+    expect(fileUploaderSource).toMatch(/onCapture={handleCapturedPhoto}/);
+    // The menu is anchored above the composer through the positioned uploader.
+    expect(styles).toContain(".attach-menu {");
+    expect(styles).toContain("bottom: calc(100% + 12px)");
+    expect(styles).toContain(".camera-capture__shutter");
   });
 });
