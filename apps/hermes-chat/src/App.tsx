@@ -9,6 +9,7 @@ import { AgentsScreen } from "./screens/Agents";
 import { ChatsScreen } from "./screens/Chats";
 import { ChatScreen } from "./screens/Chat";
 import { SettingsScreen } from "./screens/Settings";
+import { ProfileSettingsScreen } from "./screens/ProfileSettings";
 import { Spinner } from "./components/ui";
 import { connectionGate } from "@contexcgi/client";
 
@@ -20,6 +21,14 @@ function renderScreen(screen: Screen) {
       return <AgentsScreen />;
     case "settings":
       return <SettingsScreen />;
+    case "profile-settings":
+      return (
+        <ProfileSettingsScreen
+          agentId={screen.agentId}
+          agentName={screen.agentName}
+          currentModel={screen.currentModel}
+        />
+      );
     case "chats":
       return (
         <ChatsScreen agentId={screen.agentId} agentName={screen.agentName} />

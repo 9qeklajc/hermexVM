@@ -130,7 +130,13 @@ rl.on("line", (line) => {
           provider: m?.[2] || "",
         });
       }
-      ok(id, { key: params.key, value: params.value, scope: "session" });
+      ok(id, {
+        key: params.key,
+        value: params.value,
+        scope: String(params.value || "").includes("--global")
+          ? "global"
+          : "session",
+      });
       return;
     }
     case "approval.respond":

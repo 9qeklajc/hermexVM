@@ -164,6 +164,14 @@ async function main(): Promise<void> {
     );
     console.log(`✓ agents: ${agents.map((agent) => agent.name).join(", ")}`);
 
+    const profileUpdate = await client.updateProfile({
+      agentId: "coder",
+      model: "deepseek-v4-pro",
+      provider: "routstr",
+    });
+    assert(profileUpdate.scope === "global", "profile model update is global");
+    console.log("✓ profile default model update");
+
     // 2. A second "watcher" device subscribes to app-wide activity BEFORE the
     // turn starts — it must see turn.started + turn.completed with a preview.
     const watcher = new HermesChatClient({

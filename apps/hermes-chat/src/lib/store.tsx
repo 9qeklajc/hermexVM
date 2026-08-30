@@ -38,6 +38,12 @@ export type Screen =
   | { kind: "connect" }
   | { kind: "agents" }
   | { kind: "settings" }
+  | {
+      kind: "profile-settings";
+      agentId: string;
+      agentName: string;
+      currentModel?: string;
+    }
   | { kind: "chats"; agentId: string; agentName: string }
   | {
       kind: "chat";

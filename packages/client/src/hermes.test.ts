@@ -46,6 +46,34 @@ describe("HermesChatClient", () => {
     );
   });
 
+  it("updates one agent profile's default model", async () => {
+    const result = { value: "glm-5.2", scope: "global" };
+    const callTool = vi.fn<FakeCallTool>(async () => ({
+      structuredContent: result,
+    }));
+    const client = clientWithFakeCallTool(callTool);
+
+    await expect(
+      client.updateProfile({
+        agentId: "coder",
+        model: "glm-5.2",
+        provider: "custom:routstr",
+      }),
+    ).resolves.toEqual(result);
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: "hermes.profile.update",
+        arguments: {
+          agentId: "coder",
+          model: "glm-5.2",
+          provider: "custom:routstr",
+        },
+      },
+      undefined,
+      undefined,
+    );
+  });
+
   it("asks the connected bridge to ensure client relays", async () => {
     const result = {
       relays: ["wss://one.example", "wss://two.example"],

@@ -26,6 +26,7 @@ import {
   HERMES_HANDOFFS_LIST_TOOL_NAME,
   HERMES_MODELS_LIST_TOOL_NAME,
   HERMES_MODEL_SWITCH_TOOL_NAME,
+  HERMES_PROFILE_UPDATE_TOOL_NAME,
   HERMES_PROJECTS_LIST_TOOL_NAME,
   HERMES_RELAYS_ENSURE_TOOL_NAME,
   HERMES_SESSION_CWD_SET_TOOL_NAME,
@@ -362,6 +363,21 @@ export class HermesChatClient {
       HERMES_AGENTS_LIST_TOOL_NAME,
     );
     return payload.agents ?? [];
+  }
+
+  /** Persist the editable settings for one Hermes agent profile. */
+  updateProfile(input: {
+    agentId: string;
+    model: string;
+    provider?: string;
+    confirmExpensiveModel?: boolean;
+  }): Promise<HermesModelSwitchResult> {
+    return this.call<HermesModelSwitchResult>(HERMES_PROFILE_UPDATE_TOOL_NAME, {
+      agentId: input.agentId,
+      model: input.model,
+      ...(input.provider ? { provider: input.provider } : {}),
+      ...(input.confirmExpensiveModel ? { confirmExpensiveModel: true } : {}),
+    });
   }
 
   // -- conversations -----------------------------------------------------------

@@ -194,6 +194,25 @@ body {
   background: var(--surface);
 }
 
+.agent-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-row-main {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border-bottom: none;
+}
+
+.agent-settings-button {
+  align-self: center;
+  flex-shrink: 0;
+  margin-right: 8px;
+}
+
 .pagination-status {
   padding: 10px 14px;
   color: var(--muted-foreground);
@@ -1214,6 +1233,38 @@ body {
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
+}
+
+.profile-model-select {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.profile-model-select .identity-label {
+  grid-column: 1 / -1;
+}
+
+.profile-model-value {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-model-chevron {
+  color: var(--muted-foreground);
+  font-size: 22px;
+  line-height: 1;
 }
 
 .identity-label {

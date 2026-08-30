@@ -741,6 +741,8 @@ export const HERMES_CHAT_CLARIFY_ANSWER_TOOL_NAME =
 export const HERMES_CHAT_SET_TITLE_TOOL_NAME = "hermes.chat.title";
 /** List every available model grouped by provider (proxies tui_gateway model.options). */
 export const HERMES_MODELS_LIST_TOOL_NAME = "hermes.models.list";
+/** Persist editable settings for one Hermes agent profile. */
+export const HERMES_PROFILE_UPDATE_TOOL_NAME = "hermes.profile.update";
 /** Switch the conversation's model for the next request (proxies config.set model). */
 export const HERMES_MODEL_SWITCH_TOOL_NAME = "hermes.model.switch";
 /** Canonicalize and validate an immutable cross-agent handoff snapshot. */

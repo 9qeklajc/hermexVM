@@ -20,6 +20,7 @@ import {
   HERMES_HANDOFFS_LIST_TOOL_NAME,
   HERMES_MODELS_LIST_TOOL_NAME,
   HERMES_MODEL_SWITCH_TOOL_NAME,
+  HERMES_PROFILE_UPDATE_TOOL_NAME,
   HERMES_PROJECTS_LIST_TOOL_NAME,
   HERMES_SESSION_CWD_SET_TOOL_NAME,
   HERMES_SKILLS_LIST_TOOL_NAME,
@@ -1928,6 +1929,71 @@ export function registerHermesTools(
         provider: str(response.provider) ?? "",
       };
       return ok(payload, `models ${providers.length} providers`);
+    },
+  );
+
+  server.registerTool(
+    HERMES_PROFILE_UPDATE_TOOL_NAME,
+    {
+      title: "Update Hermes agent profile",
+      description:
+        "Persists the default model for one Hermes agent profile. New conversations use this model unless they select a conversation-specific override.",
+      inputSchema: {
+        agentId: z.string().min(1),
+        model: z.string().min(1),
+        provider: z.string().min(1).optional(),
+        confirmExpensiveModel: z.boolean().optional(),
+      },
+    },
+    async ({
+      agentId,
+      model,
+      provider,
+      confirmExpensiveModel,
+    }): Promise<CallToolResult> => {
+      const missing = requireAgent(agentId);
+      if (missing) return missing;
+
+      // config.set is session-oriented even for a global/profile write. Create
+      // a transient session under the selected profile so Hermes persists the
+      // setting in that profile's config rather than the bridge default.
+      const created = await gateway.request<SessionCreateResponse>(
+        "session.create",
+        gatewaySessionCreateParams(agentId),
+      );
+      const sid = str(created.session_id);
+      if (!sid) throw new Error("hermes gateway create returned no session id");
+
+      const modelInput = [
+        model,
+        ...(provider ? ["--provider", provider] : []),
+        "--global",
+      ].join(" ");
+      const response = await gateway.request<{
+        value?: string;
+        warning?: string;
+        confirm_required?: boolean;
+        confirm_message?: string;
+        scope?: string;
+      }>("config.set", {
+        session_id: sid,
+        key: "model",
+        value: modelInput,
+        ...(confirmExpensiveModel ? { confirm_expensive_model: true } : {}),
+      });
+      const result: HermesModelSwitchResult = {
+        value: str(response.value) ?? model,
+        scope: str(response.scope) ?? "global",
+        ...(str(response.warning) ? { warning: response.warning } : {}),
+        ...(response.confirm_required
+          ? {
+              confirmRequired: true,
+              confirmMessage:
+                str(response.confirm_message) ?? "Confirm model change",
+            }
+          : {}),
+      };
+      return ok(result, "profile-updated");
     },
   );
 
