@@ -6,12 +6,23 @@ node_modules
 .pnp
 .pnp.js
 
-# Local env files
+# Local env files and credentials
 .env
 .env.*
 .local/
 .contexcgi/
 .codex
+auth.json
+credentials*.json
+secrets*.json
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*release-signing.properties
+**/local.properties
 .env.local
 .env.development.local
 .env.test.local
@@ -47,6 +58,9 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+*.db
+*.sqlite
+*.sqlite3
 .pi-subagents/artifacts
 /audit.log
 /apps/paperclip-bridge/_sets.mjs

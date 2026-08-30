@@ -66,7 +66,7 @@ Add release notes to `CHANGELOG.md`.
 Create `zapstore.yaml` at the repository root:
 
 ```yaml
-repository: https://PUBLIC-FORGE.example/OWNER/hermexVM
+repository: https://github.com/OWNER/hermexVM
 release_source: ./apps/hermes-chat/android/app/build/outputs/apk/release/app-release.apk
 
 name: hermexVM
@@ -114,10 +114,10 @@ Do not continue if either command fails.
 ## 5. Build the release-signed APK
 
 ```bash
-export JAVA_HOME=/home/you/android-toolchain/jdk-21.0.5+11
-export ANDROID_HOME=/home/you/.android-dev/sdk
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export HERMEXVM_SIGNING_PROPERTIES=/secure/path/hermexvm-release-signing.properties
+: "${JAVA_HOME:?Set JAVA_HOME to a JDK 21 installation}"
+: "${ANDROID_HOME:?Set ANDROID_HOME to the Android SDK}"
+export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+: "${HERMEXVM_SIGNING_PROPERTIES:?Set HERMEXVM_SIGNING_PROPERTIES to the release signing properties file}"
 
 pnpm app:apk:release
 ```

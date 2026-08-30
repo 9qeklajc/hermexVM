@@ -1,0 +1,31 @@
+# ZAPstore manifest template. Replace every REPLACE_* value before publishing.
+repository: https://github.com/OWNER/hermexVM
+release_source: ./apps/hermes-chat/android/app/build/outputs/apk/release/app-release.apk
+
+name: hermexVM
+summary: Securely control a remote Hermes agent from Android over Nostr
+
+description: |
+  hermexVM is an Android client for connecting to a self-hosted Hermes bridge
+  over encrypted Nostr transport. It provides chats, agent controls, file
+  transfer, voice messages, and connection/profile management.
+
+  A separately deployed and configured Hermes bridge is required.
+
+tags:
+  - nostr
+  - ai
+  - productivity
+  - developer-tools
+
+license: REPLACE_WITH_APPROVED_SPDX_ID
+website: https://REPLACE_WITH_PUBLIC_WEBSITE.example
+icon: ./apps/hermes-chat/public/app-icon.png
+
+images:
+  - ./images/profile-settings.png
+  - ./images/profiles.png
+  - ./images/model-picker.png
+  - ./images/skills.png
+
+release_notes: ./CHANGELOG.md

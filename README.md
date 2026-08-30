@@ -2,6 +2,10 @@
 
 hermexVM is a self-contained Android/web client plus a private ContextVM bridge for a local [Hermes Agent](https://hermes-agent.nousresearch.com) installation.
 
+<p align="center">
+  <img src="images/profiles.png" alt="hermexVM profiles overview" width="360">
+</p>
+
 ```text
 hermexVM app ── encrypted ContextVM over Nostr ──▶ Hermes bridge ── JSON-RPC stdio ──▶ Hermes tui_gateway ──▶ configured model provider (for example, Routstr)
 ```
@@ -32,7 +36,7 @@ Long conversation text is transferred safely in both directions. User prompts an
 ## Install and verify
 
 ```bash
-git clone http://localhost:3000/OWNER/hermexVM.git
+git clone https://github.com/9qeklajc/hermexVM.git
 cd hermexVM
 pnpm install --frozen-lockfile
 pnpm check-types
