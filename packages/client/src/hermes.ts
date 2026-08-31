@@ -127,11 +127,12 @@ export class HermesTranscriptionError extends Error {
 // the bridge's own transcription budget (default 180s).
 const TRANSCRIBE_REQUEST_TIMEOUT_MS = 240_000;
 
-// Mobile networks routinely leave WebSockets half-open after suspend or a
-// Wi-Fi/cellular handoff. Detect those zombie relay connections before the
-// next conversation request has to wait for the MCP timeout.
-const RELAY_PING_FREQUENCY_MS = 120_000;
-const RELAY_PING_TIMEOUT_MS = 20_000;
+// Some supported relays never answer the pool's `limit:0` liveness request
+// with EOSE. A periodic timeout would then rebuild an otherwise healthy pool,
+// dropping in-flight responses and live streams. Existing request retries,
+// reconnects, foreground replacement, and stream-stall recovery handle actual
+// transport failures, so keep this destructive probe effectively disabled.
+const RELAY_PING_FREQUENCY_MS = 2_147_400_000;
 
 // Each chunk call is its own small, independently-encrypted MCP message, kept
 // well under NIP-44's 65535-byte plaintext ceiling once JSON/MCP framing
@@ -197,14 +198,11 @@ export class HermesChatClient {
     mcpClient: Client;
     transport: NostrClientTransport;
   } {
-    // Keep discovery disabled and use the configured relays directly. Regular
-    // liveness probes rebuild sockets that mobile suspend/network handoffs can
-    // leave half-open, instead of making the first history request discover it.
+    // Keep discovery disabled and use the configured relays directly.
     const relays =
       config.relays ?? config.discoveryRelays ?? config.fallbackRelays ?? [];
     const relayPool = new ApplesauceRelayPool(relays, {
       pingFrequencyMs: RELAY_PING_FREQUENCY_MS,
-      pingTimeoutMs: RELAY_PING_TIMEOUT_MS,
     });
     const transport = new NostrClientTransport({
       signer: new PrivateKeySigner(normalizePrivateKey(config.privateKey)),
@@ -409,10 +407,19 @@ export class HermesChatClient {
     agentId: string,
     chatId: string,
     beforeOrdinal?: number,
+    options?: { fresh?: boolean },
   ): Promise<HermesChatHistoryResult> {
     const key = JSON.stringify([agentId, chatId, beforeOrdinal ?? null]);
-    const existing = this.historyRequests.get(key);
-    if (existing) return existing;
+    if (options?.fresh) {
+      // A completion or mutation boundary must not inherit a transcript read
+      // that began before that boundary. Replacing the entry also makes later
+      // ordinary callers join this authoritative request rather than the old
+      // one; guarded cleanup below prevents the old request from deleting it.
+      this.historyRequests.delete(key);
+    } else {
+      const existing = this.historyRequests.get(key);
+      if (existing) return existing;
+    }
 
     const request = this.call<HermesChatHistoryResult>(
       HERMES_CHAT_HISTORY_TOOL_NAME,

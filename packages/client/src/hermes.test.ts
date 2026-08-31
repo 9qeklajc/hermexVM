@@ -8,6 +8,30 @@ type FakeCallTool = (
   options?: unknown,
 ) => unknown;
 
+function deferredToolCalls() {
+  const calls: Array<{
+    resolve: (result: unknown) => void;
+    reject: (reason: unknown) => void;
+  }> = [];
+  const callTool = vi.fn<FakeCallTool>(
+    () =>
+      new Promise((resolve, reject) => {
+        calls.push({ resolve, reject });
+      }),
+  );
+  return { callTool, calls };
+}
+
+function emptyHistory(chatId = "c1") {
+  return {
+    structuredContent: {
+      agentId: "default",
+      chatId,
+      messages: [],
+    },
+  };
+}
+
 function clientWithFakeCallTool(callTool: FakeCallTool) {
   const client = new HermesChatClient({
     privateKey: "1".padStart(64, "0"),
@@ -156,39 +180,65 @@ describe("HermesChatClient", () => {
     );
   });
 
-  it("coalesces concurrent requests for the same transcript page", async () => {
-    let resolveCall!: (result: unknown) => void;
-    const callTool = vi.fn<FakeCallTool>(
-      () =>
-        new Promise((resolve) => {
-          resolveCall = resolve;
-        }),
-    );
+  it("coalesces concurrent requests only for the same transcript page", async () => {
+    const { callTool, calls } = deferredToolCalls();
     const client = clientWithFakeCallTool(callTool);
 
     const first = client.chatHistory("default", "c1");
     const second = client.chatHistory("default", "c1");
+    const olderPage = client.chatHistory("default", "c1", 12);
 
-    expect(callTool).toHaveBeenCalledTimes(1);
-    resolveCall({
-      structuredContent: {
-        agentId: "default",
-        chatId: "c1",
-        messages: [],
-      },
-    });
-    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
-
-    const third = client.chatHistory("default", "c1");
+    expect(second).toBe(first);
+    expect(olderPage).not.toBe(first);
     expect(callTool).toHaveBeenCalledTimes(2);
-    resolveCall({
-      structuredContent: {
-        agentId: "default",
-        chatId: "c1",
-        messages: [],
-      },
+
+    calls[0]?.resolve(emptyHistory());
+    calls[1]?.resolve(emptyHistory());
+    await expect(Promise.all([first, second, olderPage])).resolves.toHaveLength(
+      3,
+    );
+  });
+
+  it("does not reuse an in-flight pre-completion history request when freshness is required", async () => {
+    const { callTool, calls } = deferredToolCalls();
+    const client = clientWithFakeCallTool(callTool);
+
+    const beforeCompletion = client.chatHistory("default", "c1");
+    const afterCompletion = client.chatHistory("default", "c1", undefined, {
+      fresh: true,
     });
-    await third;
+
+    expect(afterCompletion).not.toBe(beforeCompletion);
+    expect(callTool).toHaveBeenCalledTimes(2);
+
+    // Settling the displaced request must not evict the newer authoritative
+    // request; ordinary concurrent readers should still join the latter.
+    calls[0]?.resolve(emptyHistory());
+    await beforeCompletion;
+    const concurrentAfterCompletion = client.chatHistory("default", "c1");
+    expect(concurrentAfterCompletion).toBe(afterCompletion);
+    expect(callTool).toHaveBeenCalledTimes(2);
+
+    calls[1]?.resolve(emptyHistory());
+    await expect(
+      Promise.all([afterCompletion, concurrentAfterCompletion]),
+    ).resolves.toHaveLength(2);
+  });
+
+  it("evicts a rejected history request so a later call can retry", async () => {
+    const { callTool, calls } = deferredToolCalls();
+    const client = clientWithFakeCallTool(callTool);
+
+    const failed = client.chatHistory("default", "c1");
+    expect(client.chatHistory("default", "c1")).toBe(failed);
+    calls[0]?.reject(new Error("history unavailable"));
+    await expect(failed).rejects.toThrow("history unavailable");
+
+    const retry = client.chatHistory("default", "c1");
+    expect(retry).not.toBe(failed);
+    expect(callTool).toHaveBeenCalledTimes(2);
+    calls[1]?.resolve(emptyHistory());
+    await expect(retry).resolves.toMatchObject({ chatId: "c1" });
   });
 
   it("loads the complete skills catalog in bounded pages", async () => {

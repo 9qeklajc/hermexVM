@@ -312,7 +312,7 @@ export function ChatScreen({
           // Nothing was in flight after all — settle from the transcript.
           if (result && !result.running) {
             const history = await client
-              .chatHistory(agentId, chatId)
+              .chatHistory(agentId, chatId, undefined, { fresh: true })
               .catch(() => null);
             if (history) applyHistory(history);
             return;
@@ -321,7 +321,7 @@ export function ChatScreen({
           // history for the authoritative text.
           if (outcome === "done" && result && !result.interrupted) {
             const history = await client
-              .chatHistory(agentId, chatId)
+              .chatHistory(agentId, chatId, undefined, { fresh: true })
               .catch(() => null);
             if (history) applyHistory(history);
             return;
@@ -329,7 +329,7 @@ export function ChatScreen({
           // Interrupted, stalled, or errored — the turn may still be running
           // on the bridge. Check, then re-attach after a short pause.
           const history = await client
-            .chatHistory(agentId, chatId)
+            .chatHistory(agentId, chatId, undefined, { fresh: true })
             .catch(() => null);
           if (!history) {
             await sleep(3000);
@@ -372,7 +372,9 @@ export function ChatScreen({
       const retries = options?.retries ?? 2;
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-          const history = await client.chatHistory(agentId, chatId);
+          const history = await client.chatHistory(agentId, chatId, undefined, {
+            fresh: true,
+          });
           if (disposedRef.current) return;
           setLoadError(null); // a previous failure just healed
           setActiveModel(history.context?.model ?? "");
@@ -514,7 +516,7 @@ export function ChatScreen({
         : current,
     );
     client
-      .chatHistory(agentId, completed.chatId)
+      .chatHistory(agentId, completed.chatId, undefined, { fresh: true })
       .then((history) => applyHistory(history))
       .catch(() => undefined);
   }, [activity.lastCompleted, agentId, applyHistory, client]);
