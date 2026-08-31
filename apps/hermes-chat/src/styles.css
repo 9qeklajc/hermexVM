@@ -1212,6 +1212,13 @@ body {
   padding: 18px 16px calc(28px + var(--safe-bottom));
 }
 
+.settings-version {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-align: center;
+}
+
 .settings-section {
   display: flex;
   flex-direction: column;

@@ -350,6 +350,7 @@ export function SettingsScreen() {
         <button type="button" className="button danger" onClick={disconnect}>
           Remove all bridges from this device
         </button>
+        <p className="settings-version">hermexVM v{__APP_VERSION__}</p>
       </div>
     </div>
   );

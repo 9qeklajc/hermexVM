@@ -42,6 +42,20 @@ jobs:
           java-version: 21
           cache: gradle
 
+      - name: Install nak
+        env:
+          NAK_VERSION: v0.20.6
+          NAK_SHA256: b44b36c792fbc3fb73b7ba3bbc94beda2219826271aa8d5f130f569c3817c3b9
+        run: |
+          set -euo pipefail
+          asset="nak-${NAK_VERSION}-linux-amd64"
+          curl --fail --silent --show-error --location \
+            "https://github.com/fiatjaf/nak/releases/download/${NAK_VERSION}/${asset}" \
+            --output "$RUNNER_TEMP/nak"
+          echo "${NAK_SHA256}  $RUNNER_TEMP/nak" | sha256sum --check
+          install -D -m 0755 "$RUNNER_TEMP/nak" "$RUNNER_TEMP/bin/nak"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
