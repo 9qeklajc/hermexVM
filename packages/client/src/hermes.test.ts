@@ -156,6 +156,41 @@ describe("HermesChatClient", () => {
     );
   });
 
+  it("coalesces concurrent requests for the same transcript page", async () => {
+    let resolveCall!: (result: unknown) => void;
+    const callTool = vi.fn<FakeCallTool>(
+      () =>
+        new Promise((resolve) => {
+          resolveCall = resolve;
+        }),
+    );
+    const client = clientWithFakeCallTool(callTool);
+
+    const first = client.chatHistory("default", "c1");
+    const second = client.chatHistory("default", "c1");
+
+    expect(callTool).toHaveBeenCalledTimes(1);
+    resolveCall({
+      structuredContent: {
+        agentId: "default",
+        chatId: "c1",
+        messages: [],
+      },
+    });
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+
+    const third = client.chatHistory("default", "c1");
+    expect(callTool).toHaveBeenCalledTimes(2);
+    resolveCall({
+      structuredContent: {
+        agentId: "default",
+        chatId: "c1",
+        messages: [],
+      },
+    });
+    await third;
+  });
+
   it("loads the complete skills catalog in bounded pages", async () => {
     const calls: ToolCallParams[] = [];
     const callTool = vi.fn<FakeCallTool>(async (params) => {

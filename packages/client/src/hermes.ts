@@ -127,6 +127,12 @@ export class HermesTranscriptionError extends Error {
 // the bridge's own transcription budget (default 180s).
 const TRANSCRIBE_REQUEST_TIMEOUT_MS = 240_000;
 
+// Mobile networks routinely leave WebSockets half-open after suspend or a
+// Wi-Fi/cellular handoff. Detect those zombie relay connections before the
+// next conversation request has to wait for the MCP timeout.
+const RELAY_PING_FREQUENCY_MS = 120_000;
+const RELAY_PING_TIMEOUT_MS = 20_000;
+
 // Each chunk call is its own small, independently-encrypted MCP message, kept
 // well under NIP-44's 65535-byte plaintext ceiling once JSON/MCP framing
 // overhead is included (24000 bytes + a few hundred bytes of framing).
@@ -175,6 +181,10 @@ export class HermesChatClient {
   private transport: NostrClientTransport;
   private readonly config: HermesChatClientConfig;
   private reconnecting: Promise<void> | null = null;
+  private readonly historyRequests = new Map<
+    string,
+    Promise<HermesChatHistoryResult>
+  >();
 
   constructor(config: HermesChatClientConfig) {
     this.config = config;
@@ -187,12 +197,14 @@ export class HermesChatClient {
     mcpClient: Client;
     transport: NostrClientTransport;
   } {
-    // Same transport posture as PaperclipOpsClient (see the notes there):
-    // pinned relays, discovery disabled, liveness ping effectively never.
+    // Keep discovery disabled and use the configured relays directly. Regular
+    // liveness probes rebuild sockets that mobile suspend/network handoffs can
+    // leave half-open, instead of making the first history request discover it.
     const relays =
       config.relays ?? config.discoveryRelays ?? config.fallbackRelays ?? [];
     const relayPool = new ApplesauceRelayPool(relays, {
-      pingFrequencyMs: 2_147_400_000,
+      pingFrequencyMs: RELAY_PING_FREQUENCY_MS,
+      pingTimeoutMs: RELAY_PING_TIMEOUT_MS,
     });
     const transport = new NostrClientTransport({
       signer: new PrivateKeySigner(normalizePrivateKey(config.privateKey)),
@@ -398,11 +410,26 @@ export class HermesChatClient {
     chatId: string,
     beforeOrdinal?: number,
   ): Promise<HermesChatHistoryResult> {
-    return this.call<HermesChatHistoryResult>(HERMES_CHAT_HISTORY_TOOL_NAME, {
-      agentId,
-      chatId,
-      ...(beforeOrdinal === undefined ? {} : { beforeOrdinal }),
-    });
+    const key = JSON.stringify([agentId, chatId, beforeOrdinal ?? null]);
+    const existing = this.historyRequests.get(key);
+    if (existing) return existing;
+
+    const request = this.call<HermesChatHistoryResult>(
+      HERMES_CHAT_HISTORY_TOOL_NAME,
+      {
+        agentId,
+        chatId,
+        ...(beforeOrdinal === undefined ? {} : { beforeOrdinal }),
+      },
+    );
+    this.historyRequests.set(key, request);
+    const clear = () => {
+      if (this.historyRequests.get(key) === request) {
+        this.historyRequests.delete(key);
+      }
+    };
+    void request.then(clear, clear);
+    return request;
   }
 
   async deleteChat(agentId: string, chatId: string): Promise<void> {
