@@ -7,6 +7,7 @@ import {
   clearPendingFileUpload,
   fileMatchesPending,
   loadPendingFileUpload,
+  optimizeCameraImage,
   savePendingFileUpload,
   type PendingFileUpload,
 } from "../lib/file-upload";
@@ -253,6 +254,16 @@ export function FileUploader({
   }, [clearPending, client, waitForClient]);
 
   const busy = phase === "uploading";
+  const uploadStatus =
+    phase === "uploading"
+      ? `Uploading ${filename}`
+      : phase === "done"
+        ? `${filename} uploaded`
+        : phase === "error"
+          ? errorMessage
+          : phase === "resume"
+            ? `Upload paused. Reselect ${filename} to resume.`
+            : null;
 
   // The composer is disabled while a turn runs — never leave a stale menu
   // hanging over it, and never start an upload the pipeline would refuse.
@@ -271,8 +282,8 @@ export function FileUploader({
   }, [menuOpen]);
 
   // Camera option: native → device camera app via the capture input;
-  // web → live webcam modal. The captured File rides the exact same upload
-  // pipeline as a picked document (progress, resume chips, error handling).
+  // web → live webcam modal. Only these camera routes optimize their images;
+  // files selected through Document keep their original bytes.
   const chooseCamera = useCallback(() => {
     setMenuOpen(false);
     if (Capacitor.isNativePlatform()) {
@@ -283,9 +294,10 @@ export function FileUploader({
   }, []);
 
   const handleCapturedPhoto = useCallback(
-    (file: File) => {
+    async (file: File) => {
       setCameraOpen(false);
-      void handleFile(file);
+      const uploadFile = await optimizeCameraImage(file);
+      await handleFile(uploadFile);
     },
     [handleFile],
   );
@@ -310,7 +322,7 @@ export function FileUploader({
         style={{ display: "none" }}
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) void handleFile(file);
+          if (file) void handleCapturedPhoto(file);
           event.target.value = "";
         }}
       />
@@ -365,14 +377,24 @@ export function FileUploader({
         className="icon-button file-button"
         disabled={disabled || busy || phase === "loading"}
         onClick={() => setMenuOpen((open) => !open)}
-        aria-label="Attach"
-        title="Attach"
+        aria-label={busy ? undefined : "Attach"}
+        title={busy ? "Uploading file" : "Attach"}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
       >
         {busy ? (
-          <span className="file-upload-percent" aria-hidden>
-            {Math.min(99, progress)}%
+          <span
+            className="file-upload-progress"
+            role="progressbar"
+            aria-label="Uploading file"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.min(99, progress)}
+          >
+            <span className="file-upload-progress__ring" aria-hidden />
+            <span className="file-upload-progress__value" aria-hidden>
+              {Math.min(99, progress)}%
+            </span>
           </span>
         ) : (
           <svg
@@ -390,8 +412,11 @@ export function FileUploader({
           </svg>
         )}
       </button>
+      <span className="sr-only" role="status" aria-live="polite">
+        {uploadStatus}
+      </span>
       {busy ? (
-        <span className="file-progress" title={filename}>
+        <span className="file-progress" title={filename} aria-label={filename}>
           {filename}
         </span>
       ) : null}
