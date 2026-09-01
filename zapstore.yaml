@@ -1,5 +1,4 @@
 repository: https://github.com/9qeklajc/hermexVM
-release_source: ./apps/hermes-chat/android/app/build/outputs/apk/release/app-release.apk
 
 name: hermexVM
 summary: Securely control a remote Hermes agent from Android over Nostr
