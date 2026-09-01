@@ -1,12 +1,8 @@
-import { useEffect, useState } from "react";
-import type { HermesAgentProfile } from "../lib/api";
-import {
-  useActivity,
-  useConnection,
-  useConnectionState,
-  useNav,
-} from "../lib/store";
-import { isTransientTransportError } from "../lib/errors";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useActivity, useConnectionState, useNav } from "../lib/store";
+import { queryKeys, visibleQueryError } from "../lib/query";
+import { canUseRetainedTransport } from "../lib/mobile-state";
 import {
   Avatar,
   EmptyState,
@@ -17,30 +13,39 @@ import {
 } from "../components/ui";
 
 export function AgentsScreen() {
-  const { client } = useConnection();
-  const { activeBridgeName } = useConnectionState();
+  const { activeBridgeId, activeBridgeName, client, transportReplacing } =
+    useConnectionState();
   const nav = useNav();
   const activity = useActivity();
-  const [agents, setAgents] = useState<HermesAgentProfile[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
+  const queryClient = useQueryClient();
+  const agentsQuery = useQuery({
+    queryKey: queryKeys.agents(activeBridgeId ?? "unconfigured"),
+    queryFn: () => {
+      if (!client) throw new Error("Bridge is reconnecting");
+      return client.listAgents();
+    },
+    enabled: Boolean(
+      activeBridgeId &&
+      canUseRetainedTransport(Boolean(client), transportReplacing),
+    ),
+  });
   useEffect(() => {
-    let cancelled = false;
-    client
-      .listAgents()
-      .then((list) => {
-        if (!cancelled) setAgents(list);
-      })
-      .catch((cause: unknown) => {
-        // A transient transport drop during a reconnect must not flash a
-        // permanent error box — the store reconnects and this effect re-runs.
-        if (!cancelled && !isTransientTransportError(cause))
-          setError(cause instanceof Error ? cause.message : String(cause));
+    if (
+      activeBridgeId &&
+      canUseRetainedTransport(Boolean(client), transportReplacing)
+    ) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.agents(activeBridgeId),
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
+    }
+  }, [activeBridgeId, client, queryClient, transportReplacing]);
+
+  const agents = agentsQuery.data ?? null;
+  const canMutate = canUseRetainedTransport(
+    Boolean(client),
+    transportReplacing,
+  );
+  const error = visibleQueryError(agents !== null, agentsQuery.error);
 
   return (
     <div className="screen">
@@ -128,14 +133,16 @@ export function AgentsScreen() {
                 type="button"
                 className="icon-button agent-settings-button"
                 aria-label={`Settings for ${agent.name}`}
-                onClick={() =>
+                disabled={!canMutate}
+                onClick={() => {
+                  if (!canMutate) return;
                   nav.push({
                     kind: "profile-settings",
                     agentId: agent.id,
                     agentName: agent.name,
                     ...(agent.model ? { currentModel: agent.model } : {}),
-                  })
-                }
+                  });
+                }}
               >
                 <svg
                   width="19"

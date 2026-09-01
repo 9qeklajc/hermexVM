@@ -49,7 +49,7 @@ export function ConnectScreen() {
       relays: parseRelays(relays),
     };
     setPrivateKey(next.privateKey);
-    connect(next, bridgeName);
+    void connect(next, bridgeName);
   };
 
   return (

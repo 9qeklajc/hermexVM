@@ -15,6 +15,7 @@ export function SettingsScreen() {
     bridges,
     activeBridgeId,
     activeBridgeName,
+    transportReplacing,
     updateBridge,
     addBridge,
     switchBridge,
@@ -68,7 +69,8 @@ export function SettingsScreen() {
       !serverPubkey.trim() ||
       !canonicalNsec ||
       !relaysValid ||
-      saving
+      saving ||
+      transportReplacing
     ) {
       return;
     }
@@ -93,7 +95,7 @@ export function SettingsScreen() {
   };
 
   const createBridge = () => {
-    if (!newBridgeValid) return;
+    if (!newBridgeValid || transportReplacing) return;
     addBridge(newName, {
       privateKey: config.privateKey,
       serverPubkey: newServerPubkey.trim(),
@@ -131,8 +133,10 @@ export function SettingsScreen() {
                   <button
                     type="button"
                     className="bridge-profile-main"
-                    disabled={active}
-                    onClick={() => switchBridge(profile.id)}
+                    disabled={active || transportReplacing}
+                    onClick={() => {
+                      if (!transportReplacing) switchBridge(profile.id);
+                    }}
                     aria-label={
                       active
                         ? `${profile.name}, active`
@@ -155,7 +159,10 @@ export function SettingsScreen() {
                     type="button"
                     className="bridge-profile-delete"
                     aria-label={`Remove ${profile.name}`}
-                    onClick={() => deleteBridge(profile.id)}
+                    disabled={transportReplacing}
+                    onClick={() => {
+                      if (!transportReplacing) void deleteBridge(profile.id);
+                    }}
                   >
                     Remove
                   </button>
@@ -199,7 +206,7 @@ export function SettingsScreen() {
               <button
                 type="button"
                 className="button primary"
-                disabled={!newBridgeValid}
+                disabled={!newBridgeValid || transportReplacing}
                 onClick={createBridge}
               >
                 Add and connect
@@ -326,6 +333,7 @@ export function SettingsScreen() {
             className="button primary"
             disabled={
               saving ||
+              transportReplacing ||
               !name.trim() ||
               !serverPubkey.trim() ||
               !canonicalNsec ||
@@ -347,7 +355,11 @@ export function SettingsScreen() {
             {notice}
           </div>
         ) : null}
-        <button type="button" className="button danger" onClick={disconnect}>
+        <button
+          type="button"
+          className="button danger"
+          onClick={() => void disconnect()}
+        >
           Remove all bridges from this device
         </button>
         <p className="settings-version">hermexVM v{__APP_VERSION__}</p>

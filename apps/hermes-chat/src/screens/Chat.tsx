@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -51,7 +52,7 @@ import { Markdown } from "../components/Markdown";
 import { ModelPicker } from "../components/ModelPicker";
 import { ProjectPicker } from "../components/ProjectPicker";
 import { SkillPicker } from "../components/SkillPicker";
-import { Avatar, Spinner, TopBar } from "../components/ui";
+import { Avatar, EmptyState, Spinner, TopBar } from "../components/ui";
 import { VoiceRecorder } from "../components/VoiceRecorder";
 import { FileUploader } from "../components/FileUploader";
 import { AttachmentChips } from "../components/AttachmentChips";
@@ -60,6 +61,17 @@ import {
   type HandoffSeed,
 } from "../components/HandoffComposer";
 import { bindVisualViewportTop } from "../visual-viewport";
+import { fetchAuthoritativeHistory, queryKeys } from "../lib/query";
+import {
+  beginAuthoritativeHistory,
+  beginOlderHistory,
+  canUseRetainedTransport,
+  createHistoryLoadState,
+  finishHistoryLoad,
+  isCurrentAuthoritativeHistory,
+  isCurrentHistoryPage,
+  isCurrentOlderHistory,
+} from "../lib/mobile-state";
 
 type SelectableMessage = Extract<ChatItem, { kind: "user" | "assistant" }>;
 
@@ -101,6 +113,62 @@ function mergeHistoryPages(
   );
 }
 
+export function CachedChatScreen({
+  agentId,
+  agentName,
+  chatId,
+  title,
+}: {
+  agentId: string;
+  agentName: string;
+  chatId: string;
+  title?: string;
+}) {
+  const { activeBridgeId } = useConnectionState();
+  const cached = useQuery({
+    queryKey: queryKeys.history(
+      activeBridgeId ?? "unconfigured",
+      agentId,
+      chatId,
+    ),
+    queryFn: async (): Promise<HermesChatHistoryResult> => {
+      throw new Error("Bridge is reconnecting");
+    },
+    enabled: false,
+  }).data;
+  const chat = cached ? fromHistory(cached.messages) : null;
+
+  return (
+    <div className="screen chat-screen">
+      <TopBar
+        back
+        title={title || agentName}
+        subtitle="reconnecting…"
+        leading={<Avatar name={agentName} size={34} />}
+      />
+      <div className="connection-banner">
+        {chat
+          ? "Showing saved messages while reconnecting…"
+          : "Reconnecting to load this conversation…"}
+      </div>
+      {chat ? (
+        <div className="chat-scroll">
+          <div className="chat-items">
+            {chat.items.map((item) => (
+              <ChatRow key={item.id} item={item} readOnly />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <EmptyState
+          title="Messages are not cached"
+          hint="Go back to saved conversations or wait for the bridge to reconnect."
+        />
+      )}
+    </div>
+  );
+}
+
 export function ChatScreen({
   agentId,
   agentName,
@@ -113,12 +181,21 @@ export function ChatScreen({
   title?: string;
 }) {
   const { client, waitForClient } = useConnection();
-  const { resumedAt } = useConnectionState();
+  const { activeBridgeId, isClientCurrent, transportReplacing } =
+    useConnectionState();
   const activity = useActivity();
   const nav = useNav();
-  const [chat, setChat] = useState<ChatViewState | null>(
-    initialChatId ? null : emptyChat(),
-  );
+  const canMutate = canUseRetainedTransport(true, transportReplacing);
+  const queryClient = useQueryClient();
+  const [chat, setChat] = useState<ChatViewState | null>(() => {
+    if (!initialChatId || !activeBridgeId) {
+      return initialChatId ? null : emptyChat();
+    }
+    const cached = queryClient.getQueryData<HermesChatHistoryResult>(
+      queryKeys.history(activeBridgeId, agentId, initialChatId),
+    );
+    return cached ? fromHistory(cached.messages) : null;
+  });
   const [input, setInput] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   // Title input for new conversations — empty means the user hasn't named it
@@ -143,6 +220,11 @@ export function ChatScreen({
   // superseded (client hot-swap), so a stale loop never clobbers state that
   // a newer loop owns.
   const watchGenerationRef = useRef(0);
+  const historyRequestGenerationRef = useRef(0);
+  const historyLoadStateRef = useRef(createHistoryLoadState());
+  const activeClientRef = useRef(client);
+  const transportReplacingRef = useRef(transportReplacing);
+  transportReplacingRef.current = transportReplacing;
   const handledCompletionSeqRef = useRef(0);
   const lastLocalTurnEndedAtRef = useRef(0);
   // Set on unmount so a late reconcile/watch promise never starts a new
@@ -194,7 +276,6 @@ export function ChatScreen({
   const historyMessagesRef = useRef<HermesChatMessage[]>([]);
   const historyKeyRef = useRef<string | null>(null);
   const historyCursorRef = useRef<number | undefined>(undefined);
-  const historyLoadingRef = useRef(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const pendingPrependScrollRef = useRef<{
     scrollHeight: number;
@@ -205,11 +286,13 @@ export function ChatScreen({
     historyMessagesRef.current = [];
     historyKeyRef.current = null;
     historyCursorRef.current = undefined;
+    historyLoadStateRef.current = createHistoryLoadState();
     pendingPrependScrollRef.current = null;
   }, [agentId, initialChatId]);
 
   const applyHistory = useCallback(
     (history: HermesChatHistoryResult, older = false) => {
+      if (!older) pendingPrependScrollRef.current = null;
       const key = `${agentId}\u0000${history.chatId}`;
       const sameConversation = historyKeyRef.current === key;
       const messages = sameConversation
@@ -219,6 +302,13 @@ export function ChatScreen({
       historyMessagesRef.current = messages;
       if (older || !sameConversation) {
         historyCursorRef.current = history.nextBeforeOrdinal;
+      }
+
+      if (!older && activeBridgeId) {
+        queryClient.setQueryData(
+          queryKeys.history(activeBridgeId, agentId, history.chatId),
+          { ...history, messages },
+        );
       }
 
       setChat((current) => {
@@ -235,7 +325,51 @@ export function ChatScreen({
           : settled;
       });
     },
-    [agentId],
+    [activeBridgeId, agentId, queryClient],
+  );
+
+  const fetchFreshHistory = useCallback(
+    (chatId: string) => {
+      if (!activeBridgeId || !canMutate || !isClientCurrent(client)) {
+        return Promise.resolve(null);
+      }
+      const requestClient = client;
+      const requestGeneration = ++historyRequestGenerationRef.current;
+      const olderWasPending = historyLoadStateRef.current.olderPending;
+      const started = beginAuthoritativeHistory(historyLoadStateRef.current);
+      historyLoadStateRef.current = started.state;
+      pendingPrependScrollRef.current = null;
+      if (olderWasPending && !disposedRef.current) setLoadingOlder(false);
+
+      return fetchAuthoritativeHistory({
+        queryClient,
+        client: requestClient,
+        bridgeId: activeBridgeId,
+        agentId,
+        chatId,
+        isCurrent: () =>
+          !disposedRef.current &&
+          isClientCurrent(requestClient) &&
+          historyRequestGenerationRef.current === requestGeneration &&
+          isCurrentAuthoritativeHistory(
+            historyLoadStateRef.current,
+            started.ticket,
+          ),
+      }).finally(() => {
+        historyLoadStateRef.current = finishHistoryLoad(
+          historyLoadStateRef.current,
+          started.ticket,
+        );
+      });
+    },
+    [
+      activeBridgeId,
+      agentId,
+      canMutate,
+      client,
+      isClientCurrent,
+      queryClient,
+    ],
   );
 
   // Android WebView may pan its visual viewport to keep the focused composer
@@ -273,7 +407,12 @@ export function ChatScreen({
   // until it settles, instead of freezing until the user leaves and returns.
   const attachLive = useCallback(
     async (chatId: string) => {
-      if (disposedRef.current || watchingRef.current || runningRef.current)
+      if (
+        !canMutate ||
+        disposedRef.current ||
+        watchingRef.current ||
+        runningRef.current
+      )
         return;
       watchingRef.current = true;
       const generation = ++watchGenerationRef.current;
@@ -311,26 +450,29 @@ export function ChatScreen({
           }
           // Nothing was in flight after all — settle from the transcript.
           if (result && !result.running) {
-            const history = await client
-              .chatHistory(agentId, chatId, undefined, { fresh: true })
-              .catch(() => null);
-            if (history) applyHistory(history);
-            return;
+            const history = await fetchFreshHistory(chatId).catch(() => null);
+            if (history) {
+              applyHistory(history);
+              return;
+            }
+            await sleep(3000);
+            continue;
           }
           // Streamed the turn through to its terminal frame — settle from
-          // history for the authoritative text.
+          // history for the authoritative text. A failed boundary read stays
+          // in this bounded loop instead of discarding the only recovery path.
           if (outcome === "done" && result && !result.interrupted) {
-            const history = await client
-              .chatHistory(agentId, chatId, undefined, { fresh: true })
-              .catch(() => null);
-            if (history) applyHistory(history);
-            return;
+            const history = await fetchFreshHistory(chatId).catch(() => null);
+            if (history) {
+              applyHistory(history);
+              return;
+            }
+            await sleep(3000);
+            continue;
           }
           // Interrupted, stalled, or errored — the turn may still be running
           // on the bridge. Check, then re-attach after a short pause.
-          const history = await client
-            .chatHistory(agentId, chatId, undefined, { fresh: true })
-            .catch(() => null);
+          const history = await fetchFreshHistory(chatId).catch(() => null);
           if (!history) {
             await sleep(3000);
             continue;
@@ -351,7 +493,7 @@ export function ChatScreen({
         }
       }
     },
-    [client, agentId, applyHistory],
+    [agentId, applyHistory, canMutate, client, fetchFreshHistory],
   );
 
   /**
@@ -367,15 +509,13 @@ export function ChatScreen({
   const reconcile = useCallback(
     async (options?: { retries?: number; surfaceErrors?: boolean }) => {
       const chatId = chatIdRef.current;
-      if (!chatId || disposedRef.current) return;
+      if (!canMutate || !chatId || disposedRef.current) return;
       if (runningRef.current) return; // a live send stream owns the state
       const retries = options?.retries ?? 2;
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-          const history = await client.chatHistory(agentId, chatId, undefined, {
-            fresh: true,
-          });
-          if (disposedRef.current) return;
+          const history = await fetchFreshHistory(chatId);
+          if (!history || disposedRef.current) return;
           setLoadError(null); // a previous failure just healed
           setActiveModel(history.context?.model ?? "");
           setActiveProvider(history.context?.provider ?? "");
@@ -400,8 +540,23 @@ export function ChatScreen({
         }
       }
     },
-    [client, agentId, applyHistory, attachLive],
+    [applyHistory, attachLive, canMutate, fetchFreshHistory],
   );
+
+  // Once foreground replacement begins, detach every operation still bound to
+  // the retained socket. The bridge-owned turn keeps running; the fresh client
+  // reconciles and re-attaches after it commits.
+  useEffect(() => {
+    if (!transportReplacing) return;
+    void turnRef.current?.abort("transport replacement pending");
+    void watchRef.current?.abort("transport replacement pending");
+    turnRef.current = null;
+    watchRef.current = null;
+    runningRef.current = false;
+    watchingRef.current = false;
+    watchGenerationRef.current += 1;
+    historyRequestGenerationRef.current += 1;
+  }, [transportReplacing]);
 
   // The store hot-swaps clients on background→foreground reconnects. Any
   // live turn/watch stream still bound to the retired client is dead weight:
@@ -410,11 +565,11 @@ export function ChatScreen({
   // immediately and let the load/activity effects re-attach on the fresh
   // client. (Declared BEFORE the load effect so the refs are already reset
   // when that effect's attachLive call runs on the same commit.)
-  const activeClientRef = useRef(client);
   useEffect(() => {
     if (activeClientRef.current === client) return;
     const previous = activeClientRef.current;
     activeClientRef.current = client;
+    historyRequestGenerationRef.current += 1;
     if (!previous) return;
     if (runningRef.current || watchingRef.current) {
       void turnRef.current?.abort("client swapped");
@@ -428,38 +583,37 @@ export function ChatScreen({
   }, [client]);
 
   // Single revalidation path for the open conversation. It runs on mount,
-  // on client hot-swap (reconcile's identity changes with the client), on
-  // every background→foreground transition (resumedAt), and on every
-  // activity-stream (re)open (snapshotSeq — the bridge's ground truth just
-  // refreshed). Together these guarantee the screen can never sit on a stale
-  // transcript after a suspend/resume round trip, without any polling while
-  // idle.
+  // on client hot-swap (reconcile's identity changes with the client), and on
+  // every activity-stream (re)open (snapshotSeq — the bridge's ground truth
+  // just refreshed). Foreground itself does not query the retained stale
+  // socket; the store reconnects first and the client swap triggers this path.
   const snapshotSeq = activity.snapshotSeq;
   useEffect(() => {
+    if (!canMutate) return;
     if (!initialChatId && !chatIdRef.current) return;
     if (initialChatId && promotedChatIdRef.current === initialChatId) {
       promotedChatIdRef.current = null;
       return;
     }
     void reconcile({ retries: 3, surfaceErrors: true });
-  }, [reconcile, initialChatId, resumedAt, snapshotSeq]);
+  }, [canMutate, reconcile, initialChatId, snapshotSeq]);
 
   // A turn started elsewhere while this chat is open and idle — pick it up
   // live instead of waiting for the completion notification.
   useEffect(() => {
     const chatId = chatIdRef.current;
-    if (!chatId) return;
+    if (!canMutate || !chatId) return;
     if (!activity.running.has(activityKey(agentId, chatId))) return;
     if (runningRef.current || watchingRef.current) return;
     void reconcile({ retries: 2 });
-  }, [activity.running, agentId, reconcile]);
+  }, [activity.running, agentId, canMutate, reconcile]);
 
   // A local turn stream stalled (silent past the keepalive cadence) — the
   // turn may still be running on the bridge. Poll a few times: resume live
   // streaming if it is, otherwise settle the transcript from history (also
   // heals a terminal frame lost to the stall).
   useEffect(() => {
-    if (!reattachTick) return;
+    if (!canMutate || !reattachTick) return;
     const check = () => {
       if (runningRef.current || watchingRef.current) return;
       void reconcile({ retries: 0 });
@@ -471,7 +625,7 @@ export function ChatScreen({
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [reattachTick, reconcile]);
+  }, [canMutate, reattachTick, reconcile]);
 
   // Stop listening (not the agent) when leaving the screen.
   useEffect(() => {
@@ -492,6 +646,7 @@ export function ChatScreen({
   // terminal frame / the relay dropped it) but the agent actually finished —
   // the only other way out of that was leaving and re-entering the screen.
   useEffect(() => {
+    if (!canMutate) return;
     const completed = activity.lastCompleted;
     if (!completed || completed.seq <= handledCompletionSeqRef.current) return;
     handledCompletionSeqRef.current = completed.seq;
@@ -515,11 +670,8 @@ export function ChatScreen({
         ? { ...current, running: false, activity: null }
         : current,
     );
-    client
-      .chatHistory(agentId, completed.chatId, undefined, { fresh: true })
-      .then((history) => applyHistory(history))
-      .catch(() => undefined);
-  }, [activity.lastCompleted, agentId, applyHistory, client]);
+    void reconcile({ retries: 3 });
+  }, [activity.lastCompleted, agentId, canMutate, reconcile]);
 
   // Last-resort heartbeat: while the chat is believed running but NEITHER a
   // local send stream NOR a watch loop is live (both died, or their recovery
@@ -531,14 +683,14 @@ export function ChatScreen({
     activity.running.has(activityKey(agentId, chatIdRef.current)),
   );
   useEffect(() => {
-    if (!chatRunning && !bridgeSaysRunning) return;
+    if (!canMutate || (!chatRunning && !bridgeSaysRunning)) return;
     const timer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
       if (runningRef.current || watchingRef.current) return;
       void reconcile({ retries: 1 });
     }, STUCK_POLL_MS);
     return () => clearInterval(timer);
-  }, [chatRunning, bridgeSaysRunning, reconcile]);
+  }, [chatRunning, bridgeSaysRunning, canMutate, reconcile]);
 
   useEffect(() => {
     followBottomRef.current = true;
@@ -549,9 +701,10 @@ export function ChatScreen({
     const chatId = chatIdRef.current;
     const beforeOrdinal = historyCursorRef.current;
     if (
+      !canMutate ||
+      !isClientCurrent(client) ||
       !chatId ||
       beforeOrdinal === undefined ||
-      historyLoadingRef.current ||
       runningRef.current ||
       watchingRef.current
     ) {
@@ -559,8 +712,26 @@ export function ChatScreen({
     }
     const el = scrollRef.current;
     if (!el) return;
+    const started = beginOlderHistory(historyLoadStateRef.current);
+    if (!started) return;
+    historyLoadStateRef.current = started.state;
 
-    historyLoadingRef.current = true;
+    const requestClient = client;
+    const requestEpoch = historyRequestGenerationRef.current;
+    const isCurrentPage = () =>
+      isClientCurrent(requestClient) &&
+      isCurrentOlderHistory(historyLoadStateRef.current, started.ticket) &&
+      isCurrentHistoryPage({
+        requestClient,
+        currentClient: activeClientRef.current,
+        requestEpoch,
+        currentEpoch: historyRequestGenerationRef.current,
+        requestChatId: chatId,
+        currentChatId: chatIdRef.current,
+        transportReplacing: transportReplacingRef.current,
+        disposed: disposedRef.current,
+      });
+
     setLoadingOlder(true);
     followBottomRef.current = false;
     pendingPrependScrollRef.current = {
@@ -568,19 +739,34 @@ export function ChatScreen({
       scrollTop: el.scrollTop,
     };
     try {
-      const history = await client.chatHistory(agentId, chatId, beforeOrdinal);
+      const history = await requestClient.chatHistory(
+        agentId,
+        chatId,
+        beforeOrdinal,
+      );
+      if (!isCurrentPage()) {
+        pendingPrependScrollRef.current = null;
+        return;
+      }
       setLoadError(null);
       applyHistory(history, true);
     } catch (cause) {
       pendingPrependScrollRef.current = null;
-      if (!isTransientTransportError(cause)) {
+      if (isCurrentPage() && !isTransientTransportError(cause)) {
         setLoadError(cause instanceof Error ? cause.message : String(cause));
       }
     } finally {
-      historyLoadingRef.current = false;
-      setLoadingOlder(false);
+      const ownsLoadingState = isCurrentOlderHistory(
+        historyLoadStateRef.current,
+        started.ticket,
+      );
+      historyLoadStateRef.current = finishHistoryLoad(
+        historyLoadStateRef.current,
+        started.ticket,
+      );
+      if (ownsLoadingState && !disposedRef.current) setLoadingOlder(false);
     }
-  }, [agentId, applyHistory, client]);
+  }, [agentId, applyHistory, canMutate, client, isClientCurrent]);
 
   // Prepending an older page increases scrollHeight. Offset scrollTop by the
   // same delta so the message the user was reading stays under their finger.
@@ -605,7 +791,12 @@ export function ChatScreen({
 
   const send = useCallback(async () => {
     const typed = input.trim();
-    if ((!typed && attachments.length === 0) || runningRef.current) return;
+    if (
+      !canMutate ||
+      (!typed && attachments.length === 0) ||
+      runningRef.current
+    )
+      return;
     // Compose the wire text: optional file references + the typed message.
     const fileRefs = attachments.map((file) => {
       const absolutePath =
@@ -758,6 +949,7 @@ export function ChatScreen({
       }
     }
   }, [
+    canMutate,
     client,
     agentId,
     input,
@@ -773,14 +965,14 @@ export function ChatScreen({
   ]);
 
   const stop = useCallback(() => {
-    if (chatIdRef.current) {
+    if (canMutate && chatIdRef.current) {
       void client.interrupt(agentId, chatIdRef.current).catch(() => undefined);
     }
-  }, [client, agentId]);
+  }, [agentId, canMutate, client]);
 
   const answerApproval = useCallback(
     (item: ChatItem & { kind: "approval" }, choice: string) => {
-      if (!chatIdRef.current) return;
+      if (!canMutate || !chatIdRef.current) return;
       const allowed = ["once", "session", "always", "deny"].includes(choice)
         ? (choice as "once" | "session" | "always" | "deny")
         : "deny";
@@ -793,12 +985,12 @@ export function ChatScreen({
         )
         .catch(() => undefined);
     },
-    [client, agentId],
+    [agentId, canMutate, client],
   );
 
   const answerClarify = useCallback(
     (item: ChatItem & { kind: "clarify" }, answer: string) => {
-      if (!chatIdRef.current) return;
+      if (!canMutate || !chatIdRef.current) return;
       const trimmed = answer.trim();
       if (!trimmed) return;
       void client
@@ -810,11 +1002,12 @@ export function ChatScreen({
         )
         .catch(() => undefined);
     },
-    [client, agentId],
+    [agentId, canMutate, client],
   );
 
   // Load the model picker payload from the bridge.
   const loadModels = useCallback(async (): Promise<HermesModelOptions> => {
+    if (!canMutate) throw new Error("Bridge is reconnecting");
     const options = await client.listModels({
       agentId,
       ...(chatIdRef.current ? { chatId: chatIdRef.current } : {}),
@@ -823,7 +1016,7 @@ export function ChatScreen({
     if (options.provider)
       setActiveProvider((current) => current || options.provider);
     return options;
-  }, [client, agentId]);
+  }, [agentId, canMutate, client]);
 
   // A new conversation has no history payload to hydrate its effective model.
   // Load the profile default immediately so its context chip is visible before
@@ -841,6 +1034,7 @@ export function ChatScreen({
   // and enforce it atomically inside its first hermes.chat.send instead.
   const handleModelSelect = useCallback(
     async (model: string, provider: string) => {
+      if (!canMutate) throw new Error("Bridge is reconnecting");
       const chatId = chatIdRef.current;
       if (chatId) {
         const result = await client.switchModel({
@@ -861,7 +1055,7 @@ export function ChatScreen({
       setActiveModel(model);
       setActiveProvider(provider);
     },
-    [client, agentId],
+    [agentId, canMutate, client],
   );
 
   // Called when the user selects a project in the picker. For an existing
@@ -869,6 +1063,7 @@ export function ChatScreen({
   // it and apply on the first send — the bridge needs a chatId to set the cwd.
   const handleProjectSelect = useCallback(
     async (cwd: string) => {
+      if (!canMutate) throw new Error("Bridge is reconnecting");
       const chatId = chatIdRef.current;
       if (chatId) {
         const result = await client.setCwd({ agentId, chatId, cwd });
@@ -878,7 +1073,7 @@ export function ChatScreen({
         setPendingCwd(cwd);
       }
     },
-    [client, agentId],
+    [agentId, canMutate, client],
   );
 
   // Called when the user selects a skill in the picker. Inserts a prompt hint
@@ -895,13 +1090,26 @@ export function ChatScreen({
     window.setTimeout(() => composerRef.current?.focus(), 0);
   }, []);
 
-  const openPicker = useCallback((picker: "model" | "project" | "skills") => {
-    const active = document.activeElement;
-    if (active instanceof HTMLElement) active.blur();
-    if (picker === "model") setShowModelPicker(true);
-    else if (picker === "project") setShowProjectPicker(true);
-    else setShowSkillPicker(true);
-  }, []);
+  const openPicker = useCallback(
+    (picker: "model" | "project" | "skills") => {
+      if (!canMutate) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+      if (picker === "model") setShowModelPicker(true);
+      else if (picker === "project") setShowProjectPicker(true);
+      else setShowSkillPicker(true);
+    },
+    [canMutate],
+  );
+
+  useEffect(() => {
+    if (!transportReplacing) return;
+    setShowModelPicker(false);
+    setShowProjectPicker(false);
+    setShowSkillPicker(false);
+    setSelectedMessage(null);
+    setHandoffSeed(null);
+  }, [transportReplacing]);
 
   const replyToSelected = useCallback(() => {
     if (!selectedMessage) return;
@@ -1001,7 +1209,9 @@ export function ChatScreen({
         back
         title={title || agentName}
         subtitle={
-          running ? (
+          transportReplacing ? (
+            <span className="typing">reconnecting…</span>
+          ) : running ? (
             <span className="typing">{chat?.activity ?? "working…"}</span>
           ) : workingExternally ? (
             <span className="typing">working…</span>
@@ -1015,6 +1225,7 @@ export function ChatScreen({
             <button
               type="button"
               className="icon-button"
+              disabled={!canMutate}
               onClick={() => openPicker("project")}
               aria-label="Set project"
             >
@@ -1034,6 +1245,7 @@ export function ChatScreen({
             <button
               type="button"
               className="icon-button"
+              disabled={!canMutate}
               onClick={() => openPicker("skills")}
               aria-label="Browse skills"
             >
@@ -1055,6 +1267,7 @@ export function ChatScreen({
             <button
               type="button"
               className="icon-button"
+              disabled={!canMutate}
               onClick={() => openPicker("model")}
               aria-label="Switch model"
             >
@@ -1075,12 +1288,18 @@ export function ChatScreen({
           </div>
         }
       />
+      {transportReplacing ? (
+        <div className="connection-banner">
+          Showing saved messages while reconnecting…
+        </div>
+      ) : null}
       {modelChip || cwdChip ? (
         <div className="chat-context-chips" aria-label="Conversation context">
           {modelChip ? (
             <button
               type="button"
               className="model-pill"
+              disabled={!canMutate}
               onClick={() => openPicker("model")}
             >
               {pendingModel ? "pending: " : ""}
@@ -1091,6 +1310,7 @@ export function ChatScreen({
             <button
               type="button"
               className="model-pill"
+              disabled={!canMutate}
               onClick={() => openPicker("project")}
             >
               {pendingCwd ? "pending: " : ""}
@@ -1113,7 +1333,7 @@ export function ChatScreen({
                 placeholder="Conversation title (optional)"
                 value={titleDraft}
                 onChange={(event) => setTitleDraft(event.target.value)}
-                disabled={titleSaved}
+                disabled={titleSaved || !canMutate}
               />
             </div>
           ) : null}
@@ -1142,6 +1362,7 @@ export function ChatScreen({
                   onApprove={answerApproval}
                   onClarify={answerClarify}
                   onSelectMessage={setSelectedMessage}
+                  readOnly={!canMutate}
                 />
               ))}
               {chat.activity ? (
@@ -1183,16 +1404,18 @@ export function ChatScreen({
             enterKeyHint="enter"
             placeholder={`Message ${agentName}…`}
             value={input}
+            disabled={!canMutate}
             onChange={(event) => setInput(event.target.value)}
           />
           <FileUploader
             client={client}
             waitForClient={waitForClient}
             onUploaded={handleFileUploaded}
-            disabled={running}
+            disabled={running || !canMutate}
           />
           <VoiceRecorder
             client={client}
+            disabled={!canMutate}
             onTranscript={(transcript) =>
               setInput((current) => appendTranscript(current, transcript))
             }
@@ -1203,6 +1426,7 @@ export function ChatScreen({
             type="button"
             className="send-button stop"
             onClick={stop}
+            disabled={!canMutate}
             aria-label="Stop"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -1214,7 +1438,7 @@ export function ChatScreen({
             type="button"
             className="send-button"
             onClick={() => void send()}
-            disabled={!input.trim() && attachments.length === 0}
+            disabled={!canMutate || (!input.trim() && attachments.length === 0)}
             aria-label="Send"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -1223,7 +1447,7 @@ export function ChatScreen({
           </button>
         )}
       </div>
-      {selectedMessage ? (
+      {canMutate && selectedMessage ? (
         <div
           className="modal-backdrop"
           onClick={() => setSelectedMessage(null)}
@@ -1249,7 +1473,7 @@ export function ChatScreen({
           </div>
         </div>
       ) : null}
-      {handoffSeed && chatIdRef.current ? (
+      {canMutate && handoffSeed && chatIdRef.current ? (
         <HandoffComposer
           source={{ agentId, chatId: chatIdRef.current, title }}
           seed={handoffSeed}
@@ -1262,7 +1486,7 @@ export function ChatScreen({
           }
         />
       ) : null}
-      {showModelPicker ? (
+      {canMutate && showModelPicker ? (
         <ModelPicker
           agentId={agentId}
           chatId={chatIdRef.current}
@@ -1273,7 +1497,7 @@ export function ChatScreen({
           onClose={() => setShowModelPicker(false)}
         />
       ) : null}
-      {showProjectPicker ? (
+      {canMutate && showProjectPicker ? (
         <ProjectPicker
           agentId={agentId}
           currentCwd={pendingCwd || pinnedCwd}
@@ -1281,7 +1505,7 @@ export function ChatScreen({
           onClose={() => setShowProjectPicker(false)}
         />
       ) : null}
-      {showSkillPicker ? (
+      {canMutate && showSkillPicker ? (
         <SkillPicker
           load={() => client.listSkills(agentId)}
           onSelect={handleSkillSelect}
@@ -1297,17 +1521,20 @@ function ChatRow({
   onApprove,
   onClarify,
   onSelectMessage,
+  readOnly = false,
 }: {
   item: ChatItem;
-  onApprove: (item: ChatItem & { kind: "approval" }, choice: string) => void;
-  onClarify: (item: ChatItem & { kind: "clarify" }, answer: string) => void;
-  onSelectMessage: (item: SelectableMessage) => void;
+  onApprove?: (item: ChatItem & { kind: "approval" }, choice: string) => void;
+  onClarify?: (item: ChatItem & { kind: "clarify" }, answer: string) => void;
+  onSelectMessage?: (item: SelectableMessage) => void;
+  readOnly?: boolean;
 }) {
   const selectable =
-    item.kind === "user" || (item.kind === "assistant" && !item.streaming);
+    !readOnly &&
+    (item.kind === "user" || (item.kind === "assistant" && !item.streaming));
   const pressHandlers = useLongPress(() => {
     if (item.kind === "user" || item.kind === "assistant") {
-      onSelectMessage(item);
+      onSelectMessage?.(item);
     }
   }, selectable);
   const excerpt =
@@ -1325,7 +1552,7 @@ function ChatRow({
           if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
           if (item.kind === "user" || item.kind === "assistant")
-            onSelectMessage(item);
+            onSelectMessage?.(item);
         },
       }
     : {};
@@ -1335,7 +1562,7 @@ function ChatRow({
       const reply = parseReplyMessage(item.text);
       return (
         <div
-          className="bubble-row user message-pressable"
+          className={`bubble-row user${readOnly ? "" : " message-pressable"}`}
           {...pressHandlers}
           {...selectableProps}
         >
@@ -1347,9 +1574,11 @@ function ChatRow({
               </div>
             ) : null}
             <span className="bubble-copy">{reply?.message ?? item.text}</span>
-            <span className="message-status" aria-label="Sending">
-              <span aria-hidden>🕓</span>
-            </span>
+            {!readOnly ? (
+              <span className="message-status" aria-label="Sending">
+                <span aria-hidden>🕓</span>
+              </span>
+            ) : null}
           </div>
         </div>
       );
@@ -1359,7 +1588,7 @@ function ChatRow({
     case "assistant":
       return (
         <div
-          className="bubble-row assistant message-pressable"
+          className={`bubble-row assistant${readOnly ? "" : " message-pressable"}`}
           {...pressHandlers}
           {...selectableProps}
         >
@@ -1386,6 +1615,8 @@ function ChatRow({
           ) : null}
           {item.resolved ? (
             <div className="approval-resolved">answered: {item.resolved}</div>
+          ) : readOnly ? (
+            <div className="approval-resolved">Reconnect to answer</div>
           ) : (
             <div className="approval-actions">
               {item.choices.map((choice) => (
@@ -1393,7 +1624,7 @@ function ChatRow({
                   key={choice}
                   type="button"
                   className={`button compact ${choice === "deny" ? "danger" : "secondary"}`}
-                  onClick={() => onApprove(item, choice)}
+                  onClick={() => onApprove?.(item, choice)}
                 >
                   {choice}
                 </button>
@@ -1403,7 +1634,9 @@ function ChatRow({
         </div>
       );
     case "clarify":
-      return <ClarifyCard item={item} onClarify={onClarify} />;
+      return (
+        <ClarifyCard item={item} onClarify={onClarify} readOnly={readOnly} />
+      );
     case "error":
       return <div className="chat-error">{item.text}</div>;
   }
@@ -1412,9 +1645,11 @@ function ChatRow({
 function ClarifyCard({
   item,
   onClarify,
+  readOnly,
 }: {
   item: ChatItem & { kind: "clarify" };
-  onClarify: (item: ChatItem & { kind: "clarify" }, answer: string) => void;
+  onClarify?: (item: ChatItem & { kind: "clarify" }, answer: string) => void;
+  readOnly: boolean;
 }) {
   const [draft, setDraft] = useState("");
 
@@ -1424,7 +1659,7 @@ function ClarifyCard({
 
   const submit = (answer: string) => {
     if (!answer.trim()) return;
-    onClarify(item, answer);
+    onClarify?.(item, answer);
     setDraft("");
   };
 
@@ -1434,6 +1669,8 @@ function ClarifyCard({
       <div className="clarify-question">{item.question}</div>
       {item.resolved ? (
         <div className="clarify-resolved">answered: {item.resolved}</div>
+      ) : readOnly ? (
+        <div className="clarify-resolved">Reconnect to answer</div>
       ) : hasChoices ? (
         <div className="clarify-actions">
           {item.choices.map((choice) => (

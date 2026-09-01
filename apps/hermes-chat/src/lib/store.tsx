@@ -10,6 +10,7 @@ import {
 } from "react";
 import { Preferences } from "@capacitor/preferences";
 import { App as CapApp } from "@capacitor/app";
+import { focusManager, useQueryClient } from "@tanstack/react-query";
 import { makeClient, probeRelays, type HermesConfig } from "./api";
 import {
   type HermesActivityEvent,
@@ -24,11 +25,32 @@ import {
   createStoredConnections,
   deleteBridgeProfile,
   parseStoredConnections,
+  sameBridgeIdentity,
   switchBridgeProfile,
   updateBridgeProfile,
   type BridgeProfile,
   type StoredConnections,
 } from "./bridge-profiles";
+import {
+  UI_CACHE_STORAGE_KEY,
+  cacheRoute,
+  clearUiRouteCache,
+  configureUiRouteCache,
+  getCachedRoute,
+  parseUiRouteCache,
+  type CachedRoute,
+  type UiRouteCache,
+} from "./ui-cache";
+import {
+  clearAllQueryCache,
+  queryKeys,
+  removeBridgeQueryCache,
+  saveQueryCache,
+} from "./query";
+import {
+  isCurrentTransport,
+  shouldRunActivityStream,
+} from "./mobile-state";
 
 // ---------------------------------------------------------------------------
 // Navigation — a simple mobile screen stack with Android back support.
@@ -89,8 +111,12 @@ interface ConnectionState {
   }) => Promise<HermesChatClient>;
   ready: boolean; // persisted config has been loaded
   status: ConnectionStatus;
+  /** True while a retained foreground client is read-only pending replacement. */
+  transportReplacing: boolean;
+  /** Synchronous boundary check for results issued by a specific client. */
+  isClientCurrent: (candidate: HermesChatClient) => boolean;
   error: string | null;
-  connect: (config: HermesConfig, name?: string) => void;
+  connect: (config: HermesConfig, name?: string) => Promise<void>;
   addBridge: (name: string, config: HermesConfig) => void;
   updateBridge: (
     id: string,
@@ -98,16 +124,9 @@ interface ConnectionState {
     config: HermesConfig,
   ) => Promise<void>;
   switchBridge: (id: string) => void;
-  deleteBridge: (id: string) => void;
+  deleteBridge: (id: string) => Promise<void>;
   reconnect: () => void;
-  disconnect: () => void;
-  /**
-   * Monotonic counter bumped on every background→foreground transition —
-   * screens depend on it to revalidate stale state even when the reconnect
-   * itself is skipped or the client object survives the transition unchanged
-   * (in which case no client-change effect would ever fire).
-   */
-  resumedAt: number;
+  disconnect: () => Promise<void>;
 }
 
 const ConnectionContext = createContext<ConnectionState | null>(null);
@@ -144,6 +163,17 @@ const LEGACY_STORAGE_KEY = "hermexvm.connection.contextvm.v2";
  * → hot-swap: keep the old client alive) from a genuine config change (→ full
  * teardown). Deep-equal on the relays array so reordering doesn't count.
  */
+function cachedRouteStack(route: CachedRoute | null): Screen[] {
+  if (!route || route.kind === "agents") return [{ kind: "agents" }];
+  const chats: Screen = {
+    kind: "chats",
+    agentId: route.agentId,
+    agentName: route.agentName,
+  };
+  if (route.kind === "chats") return [{ kind: "agents" }, chats];
+  return [{ kind: "agents" }, chats, route];
+}
+
 function sameConnection(a: HermesConfig, b: HermesConfig): boolean {
   if (a.privateKey !== b.privateKey) return false;
   if (a.serverPubkey !== b.serverPubkey) return false;
@@ -217,6 +247,7 @@ function withRunning(
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [connections, setConnections] = useState<StoredConnections | null>(
     null,
   );
@@ -224,6 +255,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<HermesChatClient | null>(null);
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>("idle");
+  const [transportReplacing, setTransportReplacing] = useState(false);
+  const transportReplacingRef = useRef(false);
+  const setTransportReplacement = useCallback(
+    (replacing: boolean) => {
+      transportReplacingRef.current = replacing;
+      if (replacing) {
+        const bridgeId = connections?.activeId;
+        if (bridgeId) {
+          void queryClient.cancelQueries(
+            { queryKey: queryKeys.bridge(bridgeId) },
+            { silent: true },
+          );
+        }
+      }
+      setTransportReplacing(replacing);
+    },
+    [connections?.activeId, queryClient],
+  );
   const [error, setError] = useState<string | null>(null);
   const [stack, setStack] = useState<Screen[]>([{ kind: "connect" }]);
   // Bumped to force a full reconnect (fresh transport + relay sockets) — e.g.
@@ -231,7 +280,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // WebSockets, leaving a dead client that silently times out.
   const [generation, setGeneration] = useState(0);
   const [activity, setActivity] = useState<ActivityState>(EMPTY_ACTIVITY);
-  const [resumedAt, setResumedAt] = useState(0);
+  const writeRouteCache = useCallback(
+    (cache: UiRouteCache) =>
+      Preferences.set({
+        key: UI_CACHE_STORAGE_KEY,
+        value: JSON.stringify(cache),
+      }),
+    [],
+  );
+  const activateRouteCache = useCallback(
+    async (bridgeId: string) => {
+      configureUiRouteCache(bridgeId, null, writeRouteCache);
+      await cacheRoute({ kind: "agents" });
+    },
+    [writeRouteCache],
+  );
   const isActiveRef = useRef(true);
   const stackRef = useRef<Screen[]>(stack);
   stackRef.current = stack;
@@ -240,6 +303,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // a fresh transport without ever dropping hasClient to false (which would
   // unmount ChatScreen and lose the open conversation).
   const clientRef = useRef<HermesChatClient | null>(null);
+  const isClientCurrent = useCallback(
+    (candidate: HermesChatClient) =>
+      isCurrentTransport(
+        candidate,
+        clientRef.current,
+        transportReplacingRef.current,
+      ),
+    [],
+  );
   const clientWaitersRef = useRef(
     new Set<(client: HermesChatClient) => void>(),
   );
@@ -249,11 +321,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const statusRef = useRef(status);
   statusRef.current = status;
   const reconnect = useCallback(() => {
+    if (clientRef.current) setTransportReplacement(true);
+    focusManager.setFocused(false);
     setConfig((current) => {
       if (current) setGeneration((value) => value + 1);
       return current;
     });
-  }, []);
+  }, [setTransportReplacement]);
   const lastReconnectAtRef = useRef(0);
   const reconnectOnce = useCallback(() => {
     const now = Date.now();
@@ -268,13 +342,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void Promise.all([
       Preferences.get({ key: STORAGE_KEY }),
       Preferences.get({ key: LEGACY_STORAGE_KEY }),
+      Preferences.get({ key: UI_CACHE_STORAGE_KEY }),
     ])
-      .then(([current, legacy]) => {
+      .then(([current, legacy, cachedUi]) => {
         const restored =
           parseStoredConnections(current.value) ??
           parseStoredConnections(legacy.value);
+        const active = activeBridgeProfile(restored);
         setConnections(restored);
-        setConfig(activeBridgeProfile(restored)?.config ?? null);
+        setConfig(active?.config ?? null);
+        if (active) {
+          configureUiRouteCache(
+            active.id,
+            parseUiRouteCache(cachedUi.value, active.id),
+            writeRouteCache,
+          );
+          setStack(cachedRouteStack(getCachedRoute()));
+        }
         if (restored && !current.value) {
           void Preferences.set({
             key: STORAGE_KEY,
@@ -288,7 +372,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setConfig(null);
       })
       .finally(() => setReady(true));
-  }, []);
+  }, [writeRouteCache]);
 
   // Establish (or tear down) the ContextVM connection whenever config changes.
   // On a background→foreground reconnect (generation bump, same config) the
@@ -304,6 +388,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     prevConfigRef.current = config;
 
     const previousClient = isHotSwap ? clientRef.current : null;
+    setTransportReplacement(Boolean(previousClient));
     if (!isHotSwap) {
       // Full teardown (config change or disconnect): retire the old client
       // here, in the body — NOT in the cleanup, so a hot-swap run can still
@@ -314,6 +399,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     if (!config) {
+      setTransportReplacement(false);
       setStatus("idle");
       return;
     }
@@ -355,6 +441,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           activeClient = candidate;
           clientRef.current = candidate;
           setClient(candidate);
+          setTransportReplacement(false);
           for (const waiter of clientWaitersRef.current) waiter(candidate);
           clientWaitersRef.current.clear();
           setStatus("connected");
@@ -388,6 +475,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }, 5000);
         return;
       }
+      setTransportReplacement(false);
       setStatus("error");
       const base =
         lastError instanceof Error &&
@@ -426,7 +514,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         void activeClient.close().catch(() => undefined);
       }
     };
-  }, [config, generation]);
+  }, [config, generation, setTransportReplacement]);
+
+  // Restore Query focus only after React has committed the replacement client.
+  // Foreground events leave focus false so no query reaches the retained stale
+  // socket during the reconnect window.
+  useEffect(() => {
+    focusManager.setFocused(
+      isActiveRef.current &&
+        status === "connected" &&
+        Boolean(client) &&
+        !transportReplacing,
+    );
+  }, [client, status, transportReplacing]);
 
   // Reconnect after the app has genuinely been backgrounded and comes back —
   // the OS tears down WebSockets in the background. Only on a real
@@ -444,10 +544,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const onForeground = () => {
       if (!wasBackgrounded) return;
       wasBackgrounded = false;
-      // Let open screens revalidate immediately — even if the reconnect below
-      // ends up skipped or fails over to the same client object, in which
-      // case no client-change effect would ever fire.
-      setResumedAt((value) => value + 1);
+      if (clientRef.current) setTransportReplacement(true);
+      focusManager.setFocused(false);
       resumeTimer = setTimeout(() => {
         resumeTimer = null;
         if (statusRef.current !== "connecting") reconnect();
@@ -456,7 +554,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const handle = CapApp.addListener("appStateChange", ({ isActive }) => {
       isActiveRef.current = isActive;
       if (isActive) onForeground();
-      else onBackground();
+      else {
+        focusManager.setFocused(false);
+        onBackground();
+      }
     });
     // Web-standard fallback: some devices/routes (split-screen, PiP, quick
     // recents swipe, WebView re-attach) fire visibilitychange without a
@@ -465,7 +566,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const visible = document.visibilityState === "visible";
       isActiveRef.current = visible;
       if (visible) onForeground();
-      else onBackground();
+      else {
+        focusManager.setFocused(false);
+        onBackground();
+      }
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
@@ -473,7 +577,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onVisibility);
       void handle.then((listener) => listener.remove());
     };
-  }, [reconnect]);
+  }, [reconnect, setTransportReplacement]);
 
   // A transport failure is not logout. Keep retrying the stored session and
   // preserve its navigation until the user explicitly disconnects.
@@ -483,19 +587,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [config, status, reconnect]);
 
-  // App-wide activity stream: reopen with a short backoff for as long as this
-  // client lives; each (re)open starts from the bridge's snapshot so the
-  // indicators can never go stale across reconnects.
+  // App-wide activity stream: reopen with a short backoff for as long as the
+  // committed client is usable. Entering replacement reruns this effect, whose
+  // cleanup aborts the retained client's stream before a stale snapshot can
+  // trigger screen reconciliation.
   useEffect(() => {
     if (!client) {
       setActivity(EMPTY_ACTIVITY);
       return;
     }
+    if (!shouldRunActivityStream(true, transportReplacing)) return;
     let cancelled = false;
     let current: HermesActivityStream | null = null;
     void initNotifications();
 
     const handleEvent = (event: HermesActivityEvent) => {
+      if (!isClientCurrent(client)) return;
       if (event.type === "activity.snapshot") {
         setActivity((previous) => ({
           ...withRunning(
@@ -554,6 +661,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       while (!cancelled) {
+        if (!isClientCurrent(client)) break;
         try {
           const stream = await client.streamActivity();
           if (cancelled) {
@@ -578,7 +686,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       void current?.abort("teardown");
     };
-  }, [client]);
+  }, [client, isClientCurrent, transportReplacing]);
 
   useEffect(() => {
     if (status === "connected") {
@@ -634,8 +742,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const connect = useCallback(
-    (next: HermesConfig, name?: string) => {
+    async (next: HermesConfig, name?: string) => {
       const active = activeBridgeProfile(connections);
+      const identityChanged = Boolean(
+        active && !sameBridgeIdentity(active.config, next),
+      );
+      if (active && identityChanged) {
+        removeBridgeQueryCache(queryClient, active.id);
+        await saveQueryCache(queryClient);
+      }
       const updated = connections
         ? updateBridgeProfile(
             connections,
@@ -644,9 +759,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             next,
           )
         : createStoredConnections(name?.trim() || "My bridge", next);
+      if (!active || identityChanged) {
+        await activateRouteCache(updated.activeId);
+        setStack([{ kind: "agents" }]);
+      }
       persistConnections(updated);
     },
-    [connections, persistConnections],
+    [activateRouteCache, connections, persistConnections, queryClient],
   );
 
   const addBridge = useCallback(
@@ -654,10 +773,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const updated = connections
         ? addBridgeProfile(connections, name, next)
         : createStoredConnections(name, next);
+      void activateRouteCache(updated.activeId);
       persistConnections(updated);
       setStack([{ kind: "agents" }]);
     },
-    [connections, persistConnections],
+    [activateRouteCache, connections, persistConnections],
   );
 
   const updateBridge = useCallback(
@@ -671,10 +791,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         current.config.relays.some(
           (relay, index) => relay !== next.relays[index],
         );
-      const sameBridgeIdentity =
-        current.config.privateKey === next.privateKey &&
-        current.config.serverPubkey === next.serverPubkey;
-      if (id === connections.activeId && relaysChanged && sameBridgeIdentity) {
+      const identityUnchanged = sameBridgeIdentity(current.config, next);
+      if (id === connections.activeId && relaysChanged && identityUnchanged) {
         const activeClient = clientRef.current;
         if (!activeClient) {
           throw new Error(
@@ -684,37 +802,73 @@ export function AppProvider({ children }: { children: ReactNode }) {
         await activeClient.ensureBridgeRelays(next.relays);
       }
 
-      persistConnections(updateBridgeProfile(connections, id, name, next));
+      if (!identityUnchanged) {
+        removeBridgeQueryCache(queryClient, id);
+        await saveQueryCache(queryClient);
+      }
+      const updated = updateBridgeProfile(connections, id, name, next);
+      if (!identityUnchanged && id === connections.activeId) {
+        await activateRouteCache(id);
+        setStack([{ kind: "agents" }]);
+      }
+      persistConnections(updated);
     },
-    [connections, persistConnections],
+    [activateRouteCache, connections, persistConnections, queryClient],
   );
 
   const switchBridge = useCallback(
     (id: string) => {
       if (!connections || id === connections.activeId) return;
+      void activateRouteCache(id);
       persistConnections(switchBridgeProfile(connections, id));
       setStack([{ kind: "agents" }]);
     },
-    [connections, persistConnections],
+    [activateRouteCache, connections, persistConnections],
   );
 
   const deleteBridge = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (!connections) return;
       const updated = deleteBridgeProfile(connections, id);
+      if (updated) {
+        removeBridgeQueryCache(queryClient, id);
+        await saveQueryCache(queryClient);
+        if (id === connections.activeId) {
+          await activateRouteCache(updated.activeId);
+        }
+      } else {
+        await clearAllQueryCache(queryClient);
+        await Preferences.remove({ key: UI_CACHE_STORAGE_KEY });
+        clearUiRouteCache();
+      }
       persistConnections(updated);
       setStack([{ kind: updated ? "agents" : "connect" }]);
     },
-    [connections, persistConnections],
+    [activateRouteCache, connections, persistConnections, queryClient],
   );
 
-  const disconnect = useCallback(() => {
-    void Preferences.remove({ key: STORAGE_KEY });
-    void Preferences.remove({ key: LEGACY_STORAGE_KEY });
+  const disconnect = useCallback(async () => {
+    await clearAllQueryCache(queryClient);
+    await Promise.all([
+      Preferences.remove({ key: STORAGE_KEY }),
+      Preferences.remove({ key: LEGACY_STORAGE_KEY }),
+      Preferences.remove({ key: UI_CACHE_STORAGE_KEY }),
+    ]);
+    clearUiRouteCache();
     setConnections(null);
     setConfig(null);
     setStack([{ kind: "connect" }]);
-  }, []);
+  }, [queryClient]);
+
+  useEffect(() => {
+    const top = stack[stack.length - 1];
+    if (!top) return;
+    if (top.kind === "agents" || top.kind === "chats") {
+      void cacheRoute(top);
+    } else if (top.kind === "chat" && top.chatId) {
+      void cacheRoute({ ...top, chatId: top.chatId });
+    }
+  }, [stack]);
 
   const nav = useMemo(
     () => ({ stack, push, pop, replaceTop, reset }),
@@ -729,7 +883,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } = {},
     ) => {
       const timeoutMs = options.timeoutMs ?? 30_000;
-      if (clientRef.current && !options.forceReconnect) {
+      if (
+        clientRef.current &&
+        !transportReplacingRef.current &&
+        !options.forceReconnect
+      ) {
         return Promise.resolve(clientRef.current);
       }
       // Keep the stale client mounted while a fresh candidate connects. The
@@ -777,6 +935,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       waitForClient,
       ready,
       status,
+      transportReplacing,
+      isClientCurrent,
       error,
       connect,
       addBridge,
@@ -785,7 +945,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteBridge,
       reconnect,
       disconnect,
-      resumedAt,
     }),
     [
       config,
@@ -794,6 +953,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       waitForClient,
       ready,
       status,
+      transportReplacing,
+      isClientCurrent,
       error,
       connect,
       addBridge,
@@ -802,7 +963,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       deleteBridge,
       reconnect,
       disconnect,
-      resumedAt,
     ],
   );
 

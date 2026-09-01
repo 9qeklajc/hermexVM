@@ -6,6 +6,16 @@ export interface BridgeProfile {
   config: HermesConfig;
 }
 
+export function sameBridgeIdentity(
+  left: HermesConfig,
+  right: HermesConfig,
+): boolean {
+  return (
+    left.privateKey === right.privateKey &&
+    left.serverPubkey === right.serverPubkey
+  );
+}
+
 export interface StoredConnections {
   version: 3;
   activeId: string;

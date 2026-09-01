@@ -4,6 +4,7 @@ import {
   addBridgeProfile,
   deleteBridgeProfile,
   parseStoredConnections,
+  sameBridgeIdentity,
   switchBridgeProfile,
   updateBridgeProfile,
 } from "./bridge-profiles";
@@ -47,6 +48,21 @@ describe("bridge profiles", () => {
       switched.profiles.find((profile) => profile.id === switched.activeId)
         ?.config,
     ).toEqual(WORK);
+  });
+
+  it("distinguishes identity rotation from a relay-only edit", () => {
+    expect(
+      sameBridgeIdentity(HOME, {
+        ...HOME,
+        relays: ["wss://new-home.example"],
+      }),
+    ).toBe(true);
+    expect(
+      sameBridgeIdentity(HOME, { ...HOME, serverPubkey: "rotated-server" }),
+    ).toBe(false);
+    expect(
+      sameBridgeIdentity(HOME, { ...HOME, privateKey: "rotated-client" }),
+    ).toBe(false);
   });
 
   it("renames and edits one bridge without changing the others", () => {

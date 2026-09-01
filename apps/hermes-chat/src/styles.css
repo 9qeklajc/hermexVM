@@ -1498,6 +1498,16 @@ body {
 
 /* -- misc ---------------------------------------------------------------- */
 
+.connection-banner {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--muted);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  font-size: 12px;
+  text-align: center;
+}
+
 .screen-error {
   margin: 20px;
   padding: 14px;
@@ -1602,6 +1612,32 @@ body {
   border-left: 3px solid var(--gold);
   padding-left: 10px;
   color: var(--muted-foreground);
+}
+
+.markdown .md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown .md-table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.markdown .md-table th,
+.markdown .md-table td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.markdown .md-table th {
+  background: #10161d;
+  font-weight: 600;
 }
 
 .markdown .md-hr {

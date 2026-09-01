@@ -7,13 +7,13 @@ import {
 import { ConnectScreen } from "./screens/Connect";
 import { AgentsScreen } from "./screens/Agents";
 import { ChatsScreen } from "./screens/Chats";
-import { ChatScreen } from "./screens/Chat";
+import { CachedChatScreen, ChatScreen } from "./screens/Chat";
 import { SettingsScreen } from "./screens/Settings";
 import { ProfileSettingsScreen } from "./screens/ProfileSettings";
 import { Spinner } from "./components/ui";
 import { connectionGate } from "@contexcgi/client";
 
-function renderScreen(screen: Screen) {
+function renderScreen(screen: Screen, hasClient: boolean) {
   switch (screen.kind) {
     case "connect":
       return <ConnectScreen />;
@@ -34,7 +34,14 @@ function renderScreen(screen: Screen) {
         <ChatsScreen agentId={screen.agentId} agentName={screen.agentName} />
       );
     case "chat":
-      return (
+      return !hasClient && screen.chatId ? (
+        <CachedChatScreen
+          agentId={screen.agentId}
+          agentName={screen.agentName}
+          chatId={screen.chatId}
+          title={screen.title}
+        />
+      ) : (
         <ChatScreen
           agentId={screen.agentId}
           agentName={screen.agentName}
@@ -52,6 +59,7 @@ function Shell() {
     config,
     client,
     status,
+    transportReplacing,
     error,
     reconnect,
     disconnect,
@@ -66,7 +74,7 @@ function Shell() {
     hasClient: Boolean(client),
     status,
   });
-  if (gate === "loading" || gate === "reconnecting") {
+  if (gate === "loading") {
     return (
       <div className="app app--loading">
         <Spinner />
@@ -102,7 +110,10 @@ function Shell() {
                   ))}
               </div>
             ) : null}
-            <button className="button secondary" onClick={disconnect}>
+            <button
+              className="button secondary"
+              onClick={() => void disconnect()}
+            >
               Remove saved bridges
             </button>
           </div>
@@ -119,10 +130,14 @@ function Shell() {
     );
   }
   const screen =
-    client || top.kind === "connect" ? top : { kind: "connect" as const };
+    config || top.kind === "connect" ? top : { kind: "connect" as const };
   return (
     <div className="app" key={`${screen.kind}:${nav.stack.length}`}>
-      {renderScreen(screen)}
+      {(gate === "reconnecting" || transportReplacing) &&
+      screen.kind !== "chat" ? (
+        <div className="connection-banner">Reconnecting in the background…</div>
+      ) : null}
+      {renderScreen(screen, Boolean(client))}
     </div>
   );
 }
