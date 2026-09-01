@@ -7,6 +7,7 @@ import {
   parseRelays,
 } from "../lib/api";
 import { useConnectionState, useNav } from "../lib/store";
+import { RelayEditor } from "../components/RelayEditor";
 import { TopBar } from "../components/ui";
 
 export function SettingsScreen() {
@@ -250,25 +251,12 @@ export function SettingsScreen() {
               Copy npub
             </button>
           </label>
-          <label className="identity-field relay-editor">
-            <span className="identity-label">Relays</span>
-            <span className="field-help">Enter one relay URL per line.</span>
-            <textarea
-              rows={Math.max(3, parsedRelays.length)}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              value={relays}
-              onChange={(event) => setRelays(event.target.value)}
-              aria-invalid={!relaysValid}
-              placeholder={"wss://relay.example\nwss://another-relay.example"}
-            />
-          </label>
-          {!relaysValid ? (
-            <div className="form-error">
-              Enter at least one valid ws:// or wss:// relay URL.
-            </div>
-          ) : null}
+          <RelayEditor
+            value={relays}
+            valid={relaysValid}
+            onChange={setRelays}
+            rows={Math.max(3, parsedRelays.length)}
+          />
         </section>
 
         <section className="settings-section">

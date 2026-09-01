@@ -3,10 +3,12 @@ import {
   DEFAULT_RELAYS,
   DEFAULT_SERVER_PUBKEY,
   clientNpubFromPrivateKey,
+  isValidRelayUrl,
   parseRelays,
   type HermesConfig,
 } from "../lib/api";
 import { useConnectionState } from "../lib/store";
+import { RelayEditor } from "../components/RelayEditor";
 import { HermesMark } from "../components/ui";
 
 function randomHexKey(): string {
@@ -20,8 +22,8 @@ export function ConnectScreen() {
   const [bridgeName, setBridgeName] = useState("My bridge");
   const [relays, setRelays] = useState(
     config?.relays?.length
-      ? config.relays.join(", ")
-      : DEFAULT_RELAYS.join(", "),
+      ? config.relays.join("\n")
+      : DEFAULT_RELAYS.join("\n"),
   );
   const [serverPubkey, setServerPubkey] = useState(
     config?.serverPubkey ?? DEFAULT_SERVER_PUBKEY,
@@ -36,17 +38,20 @@ export function ConnectScreen() {
     if (!config) return;
     if (config.serverPubkey) setServerPubkey(config.serverPubkey);
     if (config.privateKey) setPrivateKey(config.privateKey);
-    if (config.relays?.length) setRelays(config.relays.join(", "));
+    if (config.relays?.length) setRelays(config.relays.join("\n"));
   }, [config]);
 
   const busy = status === "connecting";
   const clientNpub = clientNpubFromPrivateKey(privateKey);
+  const parsedRelays = parseRelays(relays);
+  const relaysValid =
+    parsedRelays.length > 0 && parsedRelays.every(isValidRelayUrl);
 
   const submit = () => {
     const next: HermesConfig = {
       privateKey: privateKey.trim() || randomHexKey(),
       serverPubkey: serverPubkey.trim(),
-      relays: parseRelays(relays),
+      relays: parsedRelays,
     };
     setPrivateKey(next.privateKey);
     void connect(next, bridgeName);
@@ -82,17 +87,12 @@ export function ConnectScreen() {
             onChange={(event) => setServerPubkey(event.target.value)}
           />
         </label>
-        <label>
-          <span>Relays</span>
-          <input
-            type="text"
-            autoCapitalize="off"
-            autoCorrect="off"
-            placeholder="wss://relay.example, ws://…"
-            value={relays}
-            onChange={(event) => setRelays(event.target.value)}
-          />
-        </label>
+        <RelayEditor
+          value={relays}
+          valid={relaysValid}
+          onChange={setRelays}
+          rows={Math.max(3, parsedRelays.length)}
+        />
         <label>
           <span>Your client key</span>
           <div className="input-row">
@@ -138,7 +138,7 @@ export function ConnectScreen() {
             !bridgeName.trim() ||
             !clientNpub ||
             !serverPubkey.trim() ||
-            parseRelays(relays).length === 0
+            !relaysValid
           }
           onClick={submit}
         >

@@ -791,12 +791,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const identityUnchanged = sameBridgeIdentity(current.config, next);
       if (id === connections.activeId && relaysChanged && identityUnchanged) {
         const activeClient = clientRef.current;
-        if (!activeClient) {
-          throw new Error(
-            "Connect to the bridge before changing its relay list.",
-          );
+        if (activeClient) {
+          await activeClient.ensureBridgeRelays(next.relays);
         }
-        await activeClient.ensureBridgeRelays(next.relays);
       }
 
       if (!identityUnchanged) {

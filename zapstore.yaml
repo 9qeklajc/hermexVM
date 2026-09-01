@@ -12,9 +12,9 @@ description: |
 
 tags:
   - nostr
-  - ai
-  - productivity
-  - developer-tools
+  - localfirst
+  - contextVM
+  - routstr
 
 website: https://github.com/9qeklajc/hermexVM
 icon: ./apps/hermes-chat/public/app-icon.png
