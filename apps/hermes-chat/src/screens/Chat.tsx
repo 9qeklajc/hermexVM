@@ -362,14 +362,7 @@ export function ChatScreen({
         );
       });
     },
-    [
-      activeBridgeId,
-      agentId,
-      canMutate,
-      client,
-      isClientCurrent,
-      queryClient,
-    ],
+    [activeBridgeId, agentId, canMutate, client, isClientCurrent, queryClient],
   );
 
   // Android WebView may pan its visual viewport to keep the focused composer

@@ -46,15 +46,12 @@ describe("mobile transport state", () => {
     expect(isCurrentOlderHistory(older!.state, older!.ticket)).toBe(true);
 
     const authoritative = beginAuthoritativeHistory(older!.state);
-    expect(
-      isCurrentOlderHistory(authoritative.state, older!.ticket),
-    ).toBe(false);
+    expect(isCurrentOlderHistory(authoritative.state, older!.ticket)).toBe(
+      false,
+    );
     expect(authoritative.state.olderPending).toBe(false);
     expect(
-      isCurrentAuthoritativeHistory(
-        authoritative.state,
-        authoritative.ticket,
-      ),
+      isCurrentAuthoritativeHistory(authoritative.state, authoritative.ticket),
     ).toBe(true);
 
     const afterStaleCleanup = finishHistoryLoad(

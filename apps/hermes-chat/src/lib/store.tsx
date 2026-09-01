@@ -47,10 +47,7 @@ import {
   removeBridgeQueryCache,
   saveQueryCache,
 } from "./query";
-import {
-  isCurrentTransport,
-  shouldRunActivityStream,
-} from "./mobile-state";
+import { isCurrentTransport, shouldRunActivityStream } from "./mobile-state";
 
 // ---------------------------------------------------------------------------
 // Navigation — a simple mobile screen stack with Android back support.
