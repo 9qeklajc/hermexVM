@@ -28,12 +28,12 @@ describe("FileTransferRegistry", () => {
       const path = join(root, "android", "agent.apk");
       await mkdir(join(root, "android"));
       await writeFile(path, bytes);
-      const arrivedAt = (await stat(path)).birthtime.toISOString();
       await utimes(
         path,
         new Date("2000-01-01T00:00:00.000Z"),
         new Date("2000-01-01T00:00:00.000Z"),
       );
+      const arrivedAt = (await stat(path)).birthtime.toISOString();
       await writeFile(
         `${path}.json`,
         JSON.stringify({
