@@ -20,10 +20,10 @@ After completing any feature, fix, refactor, dependency update, or configuration
    pnpm app:apk
    ```
 
-3. Set a machine-local delivery path, then replace the previously delivered APK:
+3. Replace the APK at the fixed delivery path:
 
    ```bash
-   : "${HERMEXVM_DELIVERY_APK:?Set HERMEXVM_DELIVERY_APK to the delivery path}"
+   export HERMEXVM_DELIVERY_APK=/home/admin/mydata/hermexVM-chat.apk
    rm -f "$HERMEXVM_DELIVERY_APK"
    install -D -m 0644 \
      apps/hermes-chat/android/app/build/outputs/apk/debug/app-debug.apk \

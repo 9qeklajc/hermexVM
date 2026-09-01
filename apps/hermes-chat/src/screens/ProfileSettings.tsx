@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { HermesModelOptions } from "../lib/api";
 import { ModelPicker } from "../components/ModelPicker";
 import { TopBar } from "../components/ui";
-import { useConnection, useNav } from "../lib/store";
+import { useConnection, useConnectionState, useNav } from "../lib/store";
 
 export function ProfileSettingsScreen({
   agentId,
@@ -14,6 +14,7 @@ export function ProfileSettingsScreen({
   currentModel?: string;
 }) {
   const { client } = useConnection();
+  const { transportReplacing } = useConnectionState();
   const nav = useNav();
   const [model, setModel] = useState(currentModel ?? "");
   const [provider, setProvider] = useState("");
@@ -23,11 +24,12 @@ export function ProfileSettingsScreen({
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const loadModels = useCallback(async (): Promise<HermesModelOptions> => {
+    if (transportReplacing) throw new Error("Bridge is reconnecting");
     return client.listModels({ agentId });
-  }, [client, agentId]);
+  }, [agentId, client, transportReplacing]);
 
   const save = async () => {
-    if (!model || saving) return;
+    if (!model || saving || transportReplacing) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -75,7 +77,10 @@ export function ProfileSettingsScreen({
           <button
             type="button"
             className="profile-model-select"
-            onClick={() => setShowModelPicker(true)}
+            disabled={transportReplacing}
+            onClick={() => {
+              if (!transportReplacing) setShowModelPicker(true);
+            }}
           >
             <span className="identity-label">Model</span>
             <span className="profile-model-value">
@@ -86,7 +91,7 @@ export function ProfileSettingsScreen({
           <button
             type="button"
             className="button primary"
-            disabled={!model || !dirty || saving}
+            disabled={!model || !dirty || saving || transportReplacing}
             onClick={() => void save()}
           >
             {saving ? "Saving…" : "Save profile"}
@@ -98,7 +103,7 @@ export function ProfileSettingsScreen({
           ) : null}
         </section>
       </div>
-      {showModelPicker ? (
+      {showModelPicker && !transportReplacing ? (
         <ModelPicker
           agentId={agentId}
           chatId={null}

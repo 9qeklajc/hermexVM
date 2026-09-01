@@ -53,7 +53,11 @@ describe("chat composer interaction contract", () => {
     // The percent replaces the paperclip icon while uploading — same pattern
     // as the voice recorder's mic slot — capped at 99% until the "done" toast
     // confirms the upload really finished.
-    expect(fileUploaderSource).toContain('className="file-upload-percent"');
+    expect(fileUploaderSource).toContain('className="file-upload-progress"');
+    expect(fileUploaderSource).toContain('role="progressbar"');
+    expect(fileUploaderSource).toContain(
+      "aria-valuenow={Math.min(99, progress)}",
+    );
     expect(fileUploaderSource).toContain("Math.min(99, progress)");
     // The busy toast carries only the filename, so a long photo name can never
     // push the percentage to an overflowing second line.
@@ -64,10 +68,13 @@ describe("chat composer interaction contract", () => {
     // The toast is one ellipsized line; error/done toasts wrap long unbroken
     // names inside the box instead of overflowing it.
     expect(styles).toMatch(
-      /\.composer-field \.file-progress \{\s*white-space: nowrap;/s,
+      /\.composer-field \.file-progress \{[^}]*white-space: nowrap;/s,
     );
     expect(styles).toContain("overflow-wrap: anywhere");
-    expect(styles).toContain(".file-upload-percent {");
+    expect(styles).toContain("text-overflow: ellipsis");
+    expect(styles).toContain(".file-upload-progress__ring {");
+    expect(styles).toContain("prefers-reduced-motion: reduce");
+    expect(fileUploaderSource).toMatch(/role="status" aria-live="polite"/);
   });
 
   it("routes the camera option through the device camera on Android and a webcam modal on the web", () => {
@@ -77,8 +84,14 @@ describe("chat composer interaction contract", () => {
     expect(fileUploaderSource).toContain("cameraInputRef.current?.click()");
     // The web fallback is the getUserMedia webcam modal, not the file picker.
     expect(fileUploaderSource).toContain("<CameraCapture");
-    // Both routes feed the same upload pipeline as picked documents.
+    // Both camera routes optimize before upload; the separate Document input
+    // still passes its selected File directly to handleFile.
     expect(fileUploaderSource).toMatch(/onCapture={handleCapturedPhoto}/);
+    expect(fileUploaderSource).toContain("await optimizeCameraImage(file)");
+    expect(fileUploaderSource).toMatch(/if \(file\) void handleFile\(file\)/);
+    expect(fileUploaderSource).toMatch(
+      /if \(file\) void handleCapturedPhoto\(file\)/,
+    );
     // The menu is anchored above the composer through the positioned uploader.
     expect(styles).toContain(".attach-menu {");
     expect(styles).toContain("bottom: calc(100% + 12px)");

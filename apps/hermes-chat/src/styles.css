@@ -959,7 +959,11 @@ body {
    mic slot), so the busy toast carries only the filename — one truncated
    line, never a second line. */
 .composer-field .file-progress {
+  min-width: 0;
+  box-sizing: border-box;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .send-button {
@@ -1494,6 +1498,16 @@ body {
 
 /* -- misc ---------------------------------------------------------------- */
 
+.connection-banner {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--muted);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  font-size: 12px;
+  text-align: center;
+}
+
 .screen-error {
   margin: 20px;
   padding: 14px;
@@ -1598,6 +1612,32 @@ body {
   border-left: 3px solid var(--gold);
   padding-left: 10px;
   color: var(--muted-foreground);
+}
+
+.markdown .md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown .md-table {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.markdown .md-table th,
+.markdown .md-table td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.markdown .md-table th {
+  background: #10161d;
+  font-weight: 600;
 }
 
 .markdown .md-hr {
@@ -1868,13 +1908,50 @@ body {
   text-align: center;
 }
 
-/* Upload percent shown in place of the paperclip icon while a file is sent. */
-.file-upload-percent {
-  font-size: 11px;
+/* The ring rotates independently so its centered percentage stays readable. */
+.file-upload-progress {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.file-upload-progress__ring {
+  position: absolute;
+  inset: 3px;
+  border: 2px solid var(--surface-2);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.file-upload-progress__value {
+  position: relative;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
+  font-weight: 650;
   color: var(--gold);
-  min-width: 34px;
   text-align: center;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-upload-progress__ring {
+    animation: none;
+  }
 }
 
 /* Retry / discard affordances next to a kept (failed) recording. */

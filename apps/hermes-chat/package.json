@@ -18,23 +18,25 @@
     "@capacitor/android": "^7.4.4",
     "@capacitor/app": "^7.1.0",
     "@capacitor/core": "^7.4.4",
+    "@capacitor/local-notifications": "^7.0.0",
     "@capacitor/preferences": "^7.0.2",
     "@contexcgi/client": "workspace:*",
+    "@tanstack/react-query": "^5.102.8",
+    "@tanstack/react-query-persist-client": "^5.102.8",
     "buffer": "^6.0.3",
     "nostr-tools": "^2.23.3",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "@capacitor/local-notifications": "^7.0.0"
+    "react-dom": "^19.1.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.4",
+    "@repo/eslint-config": "workspace:*",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.5.2",
+    "eslint": "^9.39.1",
     "typescript": "5.9.2",
     "vite": "^6.3.5",
-    "vitest": "^3.2.4",
-    "@repo/eslint-config": "workspace:*",
-    "eslint": "^9.39.1"
+    "vitest": "^3.2.4"
   }
 }

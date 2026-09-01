@@ -128,6 +128,49 @@ export function Markdown({
       continue;
     }
 
+    // Table (GFM pipe table): header row, |---|---| separator, body rows
+    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|[\s:|-]+\|\s*$/.test(at(i + 1))) {
+      const splitRow = (row: string): string[] =>
+        row
+          .trim()
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split(/(?<!\\)\|/)
+          .map((c) => c.trim().replace(/\\\|/g, "|"));
+      const header = splitRow(line);
+      i += 2; // header + separator
+      const rows: string[][] = [];
+      while (i < lines.length && /^\s*\|.*\|?\s*$/.test(at(i))) {
+        const row = splitRow(at(i++));
+        // pad/trim to header width so ragged rows still render
+        while (row.length < header.length) row.push("");
+        rows.push(row.slice(0, header.length));
+      }
+      blocks.push(
+        <div key={nextKey()} className="md-table-wrap">
+          <table className="md-table">
+            <thead>
+              <tr>
+                {header.map((cell) => (
+                  <th key={nextKey()}>{renderInline(cell)}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={nextKey()}>
+                  {row.map((cell) => (
+                    <td key={nextKey()}>{renderInline(cell)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+
     // Horizontal rule
     if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
       blocks.push(<hr key={nextKey()} className="md-hr" />);

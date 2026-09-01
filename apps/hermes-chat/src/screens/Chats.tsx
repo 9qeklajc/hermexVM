@@ -1,8 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import type { HermesChatSummary } from "../lib/api";
 import { formatChatTime, sourceBadge } from "../lib/chat";
-import { activityKey, useActivity, useConnection, useNav } from "../lib/store";
-import { isTransientTransportError } from "../lib/errors";
+import {
+  activityKey,
+  useActivity,
+  useConnectionState,
+  useNav,
+} from "../lib/store";
+import { queryKeys, visibleQueryError } from "../lib/query";
+import { canFetchNextPage, canUseRetainedTransport } from "../lib/mobile-state";
 import {
   Avatar,
   EmptyState,
@@ -32,76 +39,65 @@ export function ChatsScreen({
   agentId: string;
   agentName: string;
 }) {
-  const { client } = useConnection();
+  const { activeBridgeId, client, transportReplacing } = useConnectionState();
   const nav = useNav();
   const activity = useActivity();
-  const [chats, setChats] = useState<HermesChatSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const loadingMoreRef = useRef(false);
-
-  const mergePage = useCallback(
-    (page: HermesChatSummary[], placement: "front" | "back" = "front") => {
-      setChats((current) =>
-        current ? mergeChatPages(current, page, placement) : page,
-      );
-    },
-    [],
+  const queryClient = useQueryClient();
+  const queryKey = useMemo(
+    () => queryKeys.chats(activeBridgeId ?? "unconfigured", agentId),
+    [activeBridgeId, agentId],
   );
+  const chatsQuery = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => {
+      if (!client) throw new Error("Bridge is reconnecting");
+      return client.listChats(agentId, CHAT_PAGE_SIZE, pageParam);
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, pages) =>
+      lastPage.length === CHAT_PAGE_SIZE
+        ? pages.reduce((count, page) => count + page.length, 0)
+        : undefined,
+    enabled: Boolean(
+      activeBridgeId &&
+      canUseRetainedTransport(Boolean(client), transportReplacing),
+    ),
+  });
+  const chats = chatsQuery.data
+    ? chatsQuery.data.pages.reduce<HermesChatSummary[]>(
+        (all, page) => mergeChatPages(all, page, "back"),
+        [],
+      )
+    : null;
+  const hasMore = chatsQuery.hasNextPage;
+  const loadingMore = chatsQuery.isFetchingNextPage;
+  const canMutate = canUseRetainedTransport(
+    Boolean(client),
+    transportReplacing,
+  );
+  const error = visibleQueryError(chats !== null, chatsQuery.error);
+  const loadMore = () => {
+    if (canFetchNextPage(canMutate, hasMore, loadingMore)) {
+      void chatsQuery.fetchNextPage();
+    }
+  };
 
-  const reload = useCallback(() => {
-    client
-      .listChats(agentId, CHAT_PAGE_SIZE, 0)
-      .then((page) => {
-        setError(null);
-        setHasMore(page.length === CHAT_PAGE_SIZE);
-        mergePage(page);
-      })
-      .catch((cause: unknown) => {
-        // Don't flash a permanent error for a transient transport drop during
-        // a reconnect/background-return — the store reconnects and re-fetches.
-        if (isTransientTransportError(cause)) return;
-        setError(cause instanceof Error ? cause.message : String(cause));
-      });
-  }, [client, agentId, mergePage]);
-
-  const loadMore = useCallback(() => {
-    if (!chats || !hasMore || loadingMoreRef.current) return;
-    loadingMoreRef.current = true;
-    setLoadingMore(true);
-    client
-      .listChats(agentId, CHAT_PAGE_SIZE, chats.length)
-      .then((page) => {
-        setHasMore(page.length === CHAT_PAGE_SIZE);
-        mergePage(page, "back");
-      })
-      .catch((cause: unknown) => {
-        if (!isTransientTransportError(cause)) {
-          setError(cause instanceof Error ? cause.message : String(cause));
-        }
-      })
-      .finally(() => {
-        loadingMoreRef.current = false;
-        setLoadingMore(false);
-      });
-  }, [agentId, chats, client, hasMore, mergePage]);
-
+  // A fresh transport may have replaced a stale background socket while this
+  // screen stayed mounted. Revalidate through Query so concurrent focus,
+  // reconnect, and activity triggers still collapse into one request.
   useEffect(() => {
-    setChats(null);
-    setError(null);
-    setHasMore(true);
-  }, [agentId]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+    if (activeBridgeId && canMutate) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
+  }, [activeBridgeId, canMutate, queryClient, queryKey]);
 
   // A turn for this agent just finished (possibly triggered from another
   // device/screen) — refresh so the preview and ordering stay current.
   useEffect(() => {
-    if (activity.lastCompleted?.agentId === agentId) reload();
-  }, [activity.lastCompleted, agentId, reload]);
+    if (canMutate && activity.lastCompleted?.agentId === agentId) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
+  }, [activity.lastCompleted, agentId, canMutate, queryClient, queryKey]);
 
   // A turn STARTED for this agent — refresh so a brand-new conversation
   // appears in the list immediately, wearing its working indicator.
@@ -109,8 +105,10 @@ export function ChatsScreen({
     key.startsWith(`${agentId}\u0000`),
   ).length;
   useEffect(() => {
-    if (runningForAgent > 0) reload();
-  }, [runningForAgent, reload]);
+    if (canMutate && runningForAgent > 0) {
+      void queryClient.invalidateQueries({ queryKey });
+    }
+  }, [canMutate, queryClient, queryKey, runningForAgent]);
 
   const openChat = (chat: HermesChatSummary) => {
     nav.push({
@@ -201,15 +199,17 @@ export function ChatsScreen({
         type="button"
         className="fab"
         aria-label="New conversation"
-        onClick={() =>
+        disabled={!canMutate}
+        onClick={() => {
+          if (!canMutate) return;
           nav.push({
             kind: "chat",
             agentId,
             agentName,
             chatId: null,
             title: "New conversation",
-          })
-        }
+          });
+        }}
       >
         <svg
           width="26"

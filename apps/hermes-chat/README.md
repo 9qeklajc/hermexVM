@@ -10,6 +10,10 @@ A fresh install has no embedded bridge or client secret. The Connect screen gene
 
 The successful connection is stored on-device with Capacitor Preferences. Use **Edit connection settings** after a failed connection; use **Generate** to rotate the client identity, then update the bridge whitelist.
 
+## On-device cache
+
+The app keeps an app-private TanStack Query cache so saved screens can render while the bridge reconnects. Cached data is scoped to one bridge profile and may include agent details, chat lists, transcript messages, and tool output. It expires after 24 hours and is cleared when all bridges are removed with **Remove all bridges from this device**.
+
 ## Development
 
 ```bash
