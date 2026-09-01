@@ -1,5 +1,4 @@
-# ZAPstore manifest template. Replace every REPLACE_* value before publishing.
-repository: https://github.com/OWNER/hermexVM
+repository: https://github.com/9qeklajc/hermexVM
 release_source: ./apps/hermes-chat/android/app/build/outputs/apk/release/app-release.apk
 
 name: hermexVM
@@ -18,8 +17,7 @@ tags:
   - productivity
   - developer-tools
 
-license: REPLACE_WITH_APPROVED_SPDX_ID
-website: https://REPLACE_WITH_PUBLIC_WEBSITE.example
+website: https://github.com/9qeklajc/hermexVM
 icon: ./apps/hermes-chat/public/app-icon.png
 
 images:
