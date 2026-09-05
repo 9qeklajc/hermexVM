@@ -130,7 +130,7 @@ const TRANSCRIBE_REQUEST_TIMEOUT_MS = 240_000;
 // Some supported relays never answer the pool's `limit:0` liveness request
 // with EOSE. A periodic timeout would then rebuild an otherwise healthy pool,
 // dropping in-flight responses and live streams. Existing request retries,
-// reconnects, foreground replacement, and stream-stall recovery handle actual
+// reconnects, foreground MCP pings, and stream-stall recovery handle actual
 // transport failures, so keep this destructive probe effectively disabled.
 const RELAY_PING_FREQUENCY_MS = 2_147_400_000;
 
@@ -281,6 +281,11 @@ export class HermesChatClient {
 
   async connect(): Promise<void> {
     await this.mcpClient.connect(this.transport);
+  }
+
+  /** Bounded, non-retrying bridge round trip for foreground liveness checks. */
+  async ping(signal?: AbortSignal): Promise<void> {
+    await this.mcpClient.ping({ timeout: 2000, signal });
   }
 
   ensureBridgeRelays(relays: string[]): Promise<HermesRelaysEnsureResult> {

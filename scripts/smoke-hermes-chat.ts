@@ -146,6 +146,7 @@ async function main(): Promise<void> {
       relays: [relayUrl],
     });
     await client.connect();
+    await client.ping();
     console.log(`client connected ${getPublicKey(clientKey).slice(0, 12)}…`);
 
     // 1. Agent profiles

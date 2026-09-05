@@ -48,6 +48,7 @@ import {
   saveQueryCache,
 } from "./query";
 import { isCurrentTransport, shouldRunActivityStream } from "./mobile-state";
+import { useConnectionResume } from "./use-connection-resume";
 
 // ---------------------------------------------------------------------------
 // Navigation — a simple mobile screen stack with Android back support.
@@ -272,9 +273,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
   const [error, setError] = useState<string | null>(null);
   const [stack, setStack] = useState<Screen[]>([{ kind: "connect" }]);
-  // Bumped to force a full reconnect (fresh transport + relay sockets) — e.g.
-  // when the app returns from the background, where the OS may have killed the
-  // WebSockets, leaving a dead client that silently times out.
+  // Bumped to replace a failed transport with fresh relay sockets. Foreground
+  // transitions first probe the existing client instead of always rebuilding.
   const [generation, setGeneration] = useState(0);
   const [activity, setActivity] = useState<ActivityState>(EMPTY_ACTIVITY);
   const writeRouteCache = useCallback(
@@ -514,8 +514,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [config, generation, setTransportReplacement]);
 
   // Restore Query focus only after React has committed the replacement client.
-  // Foreground events leave focus false so no query reaches the retained stale
-  // socket during the reconnect window.
+  // Foreground probes restore focus directly when the existing client is
+  // healthy; failed probes leave it false until replacement completes.
   useEffect(() => {
     focusManager.setFocused(
       isActiveRef.current &&
@@ -525,56 +525,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }, [client, status, transportReplacing]);
 
-  // Reconnect after the app has genuinely been backgrounded and comes back —
-  // the OS tears down WebSockets in the background. Only on a real
-  // background→foreground transition, and never mid-handshake.
-  useEffect(() => {
-    let wasBackgrounded = false;
-    let resumeTimer: ReturnType<typeof setTimeout> | null = null;
-    const onBackground = () => {
-      wasBackgrounded = true;
-      if (resumeTimer) {
-        clearTimeout(resumeTimer);
-        resumeTimer = null;
-      }
-    };
-    const onForeground = () => {
-      if (!wasBackgrounded) return;
-      wasBackgrounded = false;
-      if (clientRef.current) setTransportReplacement(true);
-      focusManager.setFocused(false);
-      resumeTimer = setTimeout(() => {
-        resumeTimer = null;
-        if (statusRef.current !== "connecting") reconnect();
-      }, 1500);
-    };
-    const handle = CapApp.addListener("appStateChange", ({ isActive }) => {
-      isActiveRef.current = isActive;
-      if (isActive) onForeground();
-      else {
-        focusManager.setFocused(false);
-        onBackground();
-      }
-    });
-    // Web-standard fallback: some devices/routes (split-screen, PiP, quick
-    // recents swipe, WebView re-attach) fire visibilitychange without a
-    // matching appStateChange — and the OS tears down WebSockets in both.
-    const onVisibility = () => {
-      const visible = document.visibilityState === "visible";
-      isActiveRef.current = visible;
-      if (visible) onForeground();
-      else {
-        focusManager.setFocused(false);
-        onBackground();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      if (resumeTimer) clearTimeout(resumeTimer);
-      document.removeEventListener("visibilitychange", onVisibility);
-      void handle.then((listener) => listener.remove());
-    };
-  }, [reconnect, setTransportReplacement]);
+  useConnectionResume({
+    clientRef,
+    statusRef,
+    isActiveRef,
+    transportReplacingRef,
+    reconnect,
+  });
 
   // A transport failure is not logout. Keep retrying the stored session and
   // preserve its navigation until the user explicitly disconnects.
