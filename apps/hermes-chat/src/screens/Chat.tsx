@@ -963,14 +963,15 @@ export function ChatScreen({
     setInput("");
     setAttachments([]);
     setReplyTarget(null);
-    if (runningRef.current) {
-      // The agent is busy: queue the prompt; it is sent when the current
-      // turn settles.
+    if (runningRef.current || sendQueue.length > 0 || !canMutate) {
+      // The agent is busy, earlier prompts are already queued, or the
+      // transport is reconnecting: hold the prompt in the queue; it is sent
+      // when the turn settles and the connection is healthy again.
       setSendQueue((queue) => enqueuePrompt(queue, promptText));
       return;
     }
     void sendText(promptText);
-  }, [canMutate, input, attachments, replyTarget, sendText]);
+  }, [canMutate, input, attachments, replyTarget, sendText, sendQueue.length]);
 
   // Drain the queue FIFO whenever the previous turn has settled. Guarded by
   // drainingRef so the completion effect, the running-flag reset, and this
@@ -1321,7 +1322,8 @@ export function ChatScreen({
       />
       {transportReplacing ? (
         <div className="connection-banner">
-          Showing saved messages while reconnecting…
+          Showing saved messages while reconnecting… Messages you send will be
+          queued.
         </div>
       ) : null}
       {modelChip || cwdChip ? (
@@ -1453,7 +1455,6 @@ export function ChatScreen({
             enterKeyHint="enter"
             placeholder={`Message ${agentName}…`}
             value={input}
-            disabled={!canMutate}
             onChange={(event) => setInput(event.target.value)}
           />
           <FileUploader
@@ -1487,7 +1488,7 @@ export function ChatScreen({
             type="button"
             className="send-button"
             onClick={send}
-            disabled={!canMutate || (!input.trim() && attachments.length === 0)}
+            disabled={!input.trim() && attachments.length === 0}
             aria-label={running ? "Queue message" : "Send"}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
