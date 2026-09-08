@@ -792,6 +792,45 @@ body {
   white-space: nowrap;
 }
 
+/* Queued prompts (typed while the agent works) shown above the composer. */
+.queue-row {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 8px -7px;
+  padding: 6px 8px 12px;
+  border-left: 3px solid var(--gold);
+  border-radius: 9px 9px 0 0;
+  background: var(--chat-header);
+  box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.16);
+}
+
+.queue-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.queue-chip__label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--gold);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.queue-chip__text {
+  flex: 1;
+  min-width: 0;
+  color: var(--chat-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Pending file attachments shown as removable chips above the composer. */
 .attachment-row {
   flex-shrink: 0;

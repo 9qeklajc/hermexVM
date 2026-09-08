@@ -8,6 +8,8 @@ import {
   isNearChatBottom,
   markApprovalResolved,
   markClarifyResolved,
+  enqueuePrompt,
+  removeQueuedPrompt,
   parseReplyMessage,
   shouldFollowChatBottom,
   sourceBadge,
@@ -366,5 +368,28 @@ describe("thinking + tool detail", () => {
     ]);
     const tool = state.items.find((item) => item.kind === "tool");
     expect(tool).toMatchObject({ preview: "compiling…", done: false });
+  });
+});
+
+describe("send queue", () => {
+  it("appends prompts in order", () => {
+    let queue = enqueuePrompt([], "first");
+    queue = enqueuePrompt(queue, "second");
+    expect(queue.map((entry) => entry.text)).toEqual(["first", "second"]);
+  });
+
+  it("ignores blank prompts and consecutive duplicates", () => {
+    let queue = enqueuePrompt([], "   ");
+    expect(queue).toEqual([]);
+    queue = enqueuePrompt(queue, "same");
+    queue = enqueuePrompt(queue, "same");
+    expect(queue).toHaveLength(1);
+  });
+
+  it("removes a single entry by id", () => {
+    let queue = enqueuePrompt([], "one");
+    queue = enqueuePrompt(queue, "two");
+    const removed = removeQueuedPrompt(queue, queue[0]!.id);
+    expect(removed.map((entry) => entry.text)).toEqual(["two"]);
   });
 });

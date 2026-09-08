@@ -22,16 +22,19 @@ import {
   applyEvent,
   emptyChat,
   displayAgentName,
+  enqueuePrompt,
   formatReplyMessage,
   fromHistory,
   markApprovalResolved,
   markClarifyResolved,
   parseReplyMessage,
+  removeQueuedPrompt,
   shouldFollowChatBottom,
   withInflightTurn,
   withUserMessage,
   type ChatItem,
   type ChatViewState,
+  type QueuedPrompt,
   type ReplyTarget,
 } from "../lib/chat";
 import { appendTranscript } from "../lib/voice";
@@ -212,6 +215,9 @@ export function ChatScreen({
   const followBottomRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const runningRef = useRef(false);
+  // Prompts typed while a turn is running, drained FIFO when it settles.
+  const [sendQueue, setSendQueue] = useState<QueuedPrompt[]>([]);
+  const drainingRef = useRef(false);
   const watchRef = useRef<{ abort: (reason?: string) => Promise<void> } | null>(
     null,
   );
@@ -782,14 +788,168 @@ export function ChatScreen({
     }
   }, [chat?.items, chat?.activity]);
 
-  const send = useCallback(async () => {
+  const sendText = useCallback(
+    async (promptText: string) => {
+      if (!canMutate || !promptText.trim() || runningRef.current) return;
+      followBottomRef.current = true;
+      runningRef.current = true;
+      setChat((current) => withUserMessage(current ?? emptyChat(), promptText));
+
+      // If the user typed a title for this new conversation, persist it now
+      // that we're about to create the chat (and thus have a chatId). The
+      // title is set before the first prompt so it names the conversation up
+      // front instead of waiting for the auto-generated one.
+      const pendingTitle =
+        !initialChatId && !chatIdRef.current && titleDraft.trim()
+          ? titleDraft.trim()
+          : null;
+
+      try {
+        // Enforce a pending model switch INSIDE the message request itself. The
+        // bridge applies it to the exact gateway session that runs this turn, so
+        // it holds even for a brand-new conversation's first message (no durable
+        // chatId exists yet, so a separate switchModel RPC can't be targeted).
+        // This replaces the old "fire switchModel first" path, which silently
+        // let that first request run on the profile default while the top-bar
+        // chip already showed the picked model.
+        const sendModel = pendingModel;
+
+        // sendMessage can throw -32000 (ConnectionClosed) when the relay drops
+        // mid-handshake during a hot-swap reconnect. The turn may have started
+        // on the bridge — the activity stream re-attaches on reconnect. Don't
+        // surface a false "turn failed" error for a transient transport loss.
+        let turn: Awaited<ReturnType<typeof client.sendMessage>>;
+        try {
+          turn = await client.sendMessage({
+            agentId,
+            chatId: chatIdRef.current ?? undefined,
+            text: promptText,
+            ...(pendingCwd ? { cwd: pendingCwd } : {}),
+            ...(sendModel
+              ? {
+                  model: sendModel.model,
+                  ...(sendModel.provider
+                    ? { provider: sendModel.provider }
+                    : {}),
+                }
+              : {}),
+          });
+          // The model override rode on the send RPC (applied on the bridge's
+          // session), so the pending switch is fulfilled — release it so it
+          // doesn't keep firing on every later message.
+          if (sendModel) setPendingModel(null);
+        } catch (cause) {
+          // Transient relay/transport loss — not a real turn failure.
+          if (isTransientTransportError(cause)) return;
+          throw cause;
+        }
+        turnRef.current = turn;
+        let resolvedChatId = "";
+        let streamOutcome: StreamWatchOutcome = "error";
+        streamOutcome = await consumeEventsWithStallWatch(
+          turn.events,
+          (event) => {
+            if (event.type === "chat.started") {
+              chatIdRef.current = event.chatId;
+              resolvedChatId = event.chatId;
+              if (!initialChatId) {
+                promotedChatIdRef.current = event.chatId;
+                nav.replaceTop({
+                  kind: "chat",
+                  agentId,
+                  agentName,
+                  chatId: event.chatId,
+                  title: titleDraft.trim() || title || "Conversation",
+                });
+              }
+              if (pendingCwd) {
+                setPinnedCwd(pendingCwd);
+                setPendingCwd(null);
+              }
+            }
+            setChat((current) => applyEvent(current ?? emptyChat(), event));
+          },
+          { stallMs: TURN_STREAM_STALL_MS },
+        );
+        let sendResult: HermesSendResult | null = null;
+        if (streamOutcome === "done") {
+          sendResult = await awaitResultWithin(
+            turn.result,
+            STREAM_RESULT_WAIT_MS,
+          );
+        } else {
+          // Detach the dead client stream (does NOT interrupt the agent). Never
+          // await its result after a stall: that promise can remain pending on a
+          // half-open WebSocket and keep runningRef true forever.
+          void turn.abort(`send stream ${streamOutcome}`);
+        }
+        // Only a turn whose terminal frame we actually received counts as
+        // "settled locally" — the completion effect uses that to skip its own
+        // history reload, so an aborted or stalled stream must not claim it.
+        if (streamOutcome === "done" && sendResult && !sendResult.interrupted) {
+          lastLocalTurnEndedAtRef.current = Date.now();
+        }
+        // A stalled or errored stream may still have a live turn on the bridge.
+        // Recover from history instead of freezing until the user leaves and
+        // re-enters the screen.
+        if (
+          (streamOutcome === "stalled" || streamOutcome === "error") &&
+          chatIdRef.current
+        ) {
+          setReattachTick((value) => value + 1);
+        }
+
+        // Persist the title now that the chat exists, if the user set one and
+        // the turn created a new conversation.
+        if (pendingTitle && resolvedChatId) {
+          void client
+            .setChatTitle(agentId, resolvedChatId, pendingTitle)
+            .then(() => setTitleSaved(true))
+            .catch(() => undefined);
+        }
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        // A transient transport drop is not a turn failure — the turn keeps
+        // running on the bridge and the activity stream re-attaches on
+        // reconnect. Don't inject a scary error row for it.
+        if (isTransientTransportError(cause)) return;
+        setChat((current) =>
+          applyEvent(current ?? emptyChat(), { type: "error", message }),
+        );
+      } finally {
+        turnRef.current = null;
+        runningRef.current = false;
+        // The stream can end without a terminal frame (abort/relay loss) — never
+        // leave the composer stuck in "running". But when a watch re-attach
+        // already took over (client swap / stall recovery), leave its live
+        // running state alone — its next frame re-asserts it anyway.
+        if (!watchingRef.current) {
+          setChat((current) =>
+            current?.running
+              ? { ...current, running: false, activity: null }
+              : current,
+          );
+        }
+      }
+    },
+    [
+      canMutate,
+      client,
+      agentId,
+      initialChatId,
+      titleDraft,
+      pendingModel,
+      pendingCwd,
+      nav,
+      agentName,
+      title,
+    ],
+  );
+
+  /** Compose attachments + reply context, then send or enqueue. */
+  const send = useCallback(() => {
     const typed = input.trim();
-    if (
-      !canMutate ||
-      (!typed && attachments.length === 0) ||
-      runningRef.current
-    )
-      return;
+    if (!canMutate || (!typed && attachments.length === 0)) return;
     // Compose the wire text: optional file references + the typed message.
     const fileRefs = attachments.map((file) => {
       const absolutePath =
@@ -803,159 +963,37 @@ export function ChatScreen({
     setInput("");
     setAttachments([]);
     setReplyTarget(null);
-    runningRef.current = true;
-    followBottomRef.current = true;
-    setChat((current) => withUserMessage(current ?? emptyChat(), promptText));
-
-    // If the user typed a title for this new conversation, persist it now
-    // that we're about to create the chat (and thus have a chatId). The
-    // title is set before the first prompt so it names the conversation up
-    // front instead of waiting for the auto-generated one.
-    const pendingTitle =
-      !initialChatId && !chatIdRef.current && titleDraft.trim()
-        ? titleDraft.trim()
-        : null;
-
-    try {
-      // Enforce a pending model switch INSIDE the message request itself. The
-      // bridge applies it to the exact gateway session that runs this turn, so
-      // it holds even for a brand-new conversation's first message (no durable
-      // chatId exists yet, so a separate switchModel RPC can't be targeted).
-      // This replaces the old "fire switchModel first" path, which silently
-      // let that first request run on the profile default while the top-bar
-      // chip already showed the picked model.
-      const sendModel = pendingModel;
-
-      // sendMessage can throw -32000 (ConnectionClosed) when the relay drops
-      // mid-handshake during a hot-swap reconnect. The turn may have started
-      // on the bridge — the activity stream re-attaches on reconnect. Don't
-      // surface a false "turn failed" error for a transient transport loss.
-      let turn: Awaited<ReturnType<typeof client.sendMessage>>;
-      try {
-        turn = await client.sendMessage({
-          agentId,
-          chatId: chatIdRef.current ?? undefined,
-          text: promptText,
-          ...(pendingCwd ? { cwd: pendingCwd } : {}),
-          ...(sendModel
-            ? {
-                model: sendModel.model,
-                ...(sendModel.provider ? { provider: sendModel.provider } : {}),
-              }
-            : {}),
-        });
-        // The model override rode on the send RPC (applied on the bridge's
-        // session), so the pending switch is fulfilled — release it so it
-        // doesn't keep firing on every later message.
-        if (sendModel) setPendingModel(null);
-      } catch (cause) {
-        // Transient relay/transport loss — not a real turn failure.
-        if (isTransientTransportError(cause)) return;
-        throw cause;
-      }
-      turnRef.current = turn;
-      let resolvedChatId = "";
-      let streamOutcome: StreamWatchOutcome = "error";
-      streamOutcome = await consumeEventsWithStallWatch(
-        turn.events,
-        (event) => {
-          if (event.type === "chat.started") {
-            chatIdRef.current = event.chatId;
-            resolvedChatId = event.chatId;
-            if (!initialChatId) {
-              promotedChatIdRef.current = event.chatId;
-              nav.replaceTop({
-                kind: "chat",
-                agentId,
-                agentName,
-                chatId: event.chatId,
-                title: titleDraft.trim() || title || "Conversation",
-              });
-            }
-            if (pendingCwd) {
-              setPinnedCwd(pendingCwd);
-              setPendingCwd(null);
-            }
-          }
-          setChat((current) => applyEvent(current ?? emptyChat(), event));
-        },
-        { stallMs: TURN_STREAM_STALL_MS },
-      );
-      let sendResult: HermesSendResult | null = null;
-      if (streamOutcome === "done") {
-        sendResult = await awaitResultWithin(
-          turn.result,
-          STREAM_RESULT_WAIT_MS,
-        );
-      } else {
-        // Detach the dead client stream (does NOT interrupt the agent). Never
-        // await its result after a stall: that promise can remain pending on a
-        // half-open WebSocket and keep runningRef true forever.
-        void turn.abort(`send stream ${streamOutcome}`);
-      }
-      // Only a turn whose terminal frame we actually received counts as
-      // "settled locally" — the completion effect uses that to skip its own
-      // history reload, so an aborted or stalled stream must not claim it.
-      if (streamOutcome === "done" && sendResult && !sendResult.interrupted) {
-        lastLocalTurnEndedAtRef.current = Date.now();
-      }
-      // A stalled or errored stream may still have a live turn on the bridge.
-      // Recover from history instead of freezing until the user leaves and
-      // re-enters the screen.
-      if (
-        (streamOutcome === "stalled" || streamOutcome === "error") &&
-        chatIdRef.current
-      ) {
-        setReattachTick((value) => value + 1);
-      }
-
-      // Persist the title now that the chat exists, if the user set one and
-      // the turn created a new conversation.
-      if (pendingTitle && resolvedChatId) {
-        void client
-          .setChatTitle(agentId, resolvedChatId, pendingTitle)
-          .then(() => setTitleSaved(true))
-          .catch(() => undefined);
-      }
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      // A transient transport drop is not a turn failure — the turn keeps
-      // running on the bridge and the activity stream re-attaches on
-      // reconnect. Don't inject a scary error row for it.
-      if (isTransientTransportError(cause)) return;
-      setChat((current) =>
-        applyEvent(current ?? emptyChat(), { type: "error", message }),
-      );
-    } finally {
-      turnRef.current = null;
-      runningRef.current = false;
-      // The stream can end without a terminal frame (abort/relay loss) — never
-      // leave the composer stuck in "running". But when a watch re-attach
-      // already took over (client swap / stall recovery), leave its live
-      // running state alone — its next frame re-asserts it anyway.
-      if (!watchingRef.current) {
-        setChat((current) =>
-          current?.running
-            ? { ...current, running: false, activity: null }
-            : current,
-        );
-      }
+    if (runningRef.current) {
+      // The agent is busy: queue the prompt; it is sent when the current
+      // turn settles.
+      setSendQueue((queue) => enqueuePrompt(queue, promptText));
+      return;
     }
-  }, [
-    canMutate,
-    client,
-    agentId,
-    input,
-    attachments,
-    initialChatId,
-    titleDraft,
-    pendingModel,
-    pendingCwd,
-    replyTarget,
-    nav,
-    agentName,
-    title,
-  ]);
+    void sendText(promptText);
+  }, [canMutate, input, attachments, replyTarget, sendText]);
+
+  // Drain the queue FIFO whenever the previous turn has settled. Guarded by
+  // drainingRef so the completion effect, the running-flag reset, and this
+  // effect cannot double-fire the same prompt.
+  useEffect(() => {
+    if (drainingRef.current) return;
+    if (runningRef.current || watchingRef.current) return;
+    if (!canMutate) return;
+    const next = sendQueue[0];
+    if (!next) return;
+    drainingRef.current = true;
+    setSendQueue((queue) => removeQueuedPrompt(queue, next.id));
+    void sendText(next.text).finally(() => {
+      drainingRef.current = false;
+      // Re-check immediately so back-to-back queued prompts don't wait for
+      // an unrelated state change.
+      setSendQueue((queue) => (queue.length ? [...queue] : queue));
+    });
+  }, [sendQueue, canMutate, sendText]);
+
+  const removeQueued = useCallback((id: string) => {
+    setSendQueue((queue) => removeQueuedPrompt(queue, id));
+  }, []);
 
   const stop = useCallback(() => {
     if (canMutate && chatIdRef.current) {
@@ -1389,6 +1427,24 @@ export function ChatScreen({
         </div>
       ) : null}
       <AttachmentChips files={attachments} onRemove={removeAttachment} />
+      {sendQueue.length ? (
+        <div className="queue-row" aria-label="Queued messages">
+          {sendQueue.map((entry) => (
+            <div key={entry.id} className="queue-chip">
+              <span className="queue-chip__label">queued</span>
+              <span className="queue-chip__text">{entry.text}</span>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Remove queued message"
+                onClick={() => removeQueued(entry.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <div className="composer">
         <div className="composer-field">
           <textarea
@@ -1414,7 +1470,7 @@ export function ChatScreen({
             }
           />
         </div>
-        {running ? (
+        {running && !input.trim() && attachments.length === 0 ? (
           <button
             type="button"
             className="send-button stop"
@@ -1430,9 +1486,9 @@ export function ChatScreen({
           <button
             type="button"
             className="send-button"
-            onClick={() => void send()}
+            onClick={send}
             disabled={!canMutate || (!input.trim() && attachments.length === 0)}
-            aria-label="Send"
+            aria-label={running ? "Queue message" : "Send"}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3.4 20.4 22 12 3.4 3.6 3.4 10l13 2-13 2z" />

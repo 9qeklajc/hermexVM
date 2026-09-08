@@ -56,6 +56,27 @@ export type ChatItem =
     }
   | { kind: "error"; id: string; text: string };
 
+export type QueuedPrompt = { id: string; text: string };
+
+/** Append a prompt to the send queue (dedupes identical trailing entry). */
+export function enqueuePrompt(
+  queue: QueuedPrompt[],
+  text: string,
+): QueuedPrompt[] {
+  if (!text.trim()) return queue;
+  const last = queue[queue.length - 1];
+  if (last?.text === text) return queue;
+  return [...queue, { id: nextId(), text }];
+}
+
+/** Remove one queued prompt by id. */
+export function removeQueuedPrompt(
+  queue: QueuedPrompt[],
+  id: string,
+): QueuedPrompt[] {
+  return queue.filter((entry) => entry.id !== id);
+}
+
 export type ChatViewState = {
   items: ChatItem[];
   /** Transient one-line activity ("thinking…", tool status) under the last bubble. */
